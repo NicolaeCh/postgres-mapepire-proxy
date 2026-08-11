@@ -1,0 +1,17 @@
+services:
+  postgres-mapepire-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: postgres-mapepire-proxy:0.1.0
+    env_file:
+      - .env
+    ports:
+      - "${PG_LISTEN_PORT:-5432}:${PG_LISTEN_PORT:-5432}"
+      - "${HEALTH_LISTEN_PORT:-8080}:${HEALTH_LISTEN_PORT:-8080}"
+    restart: unless-stopped
+    stop_grace_period: 20s
+    volumes:
+      - ./certs:/app/certs:ro,Z
+    security_opt:
+      - no-new-privileges:true

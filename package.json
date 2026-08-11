@@ -1,0 +1,36 @@
+{
+  "name": "postgres-mapepire-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PostgreSQL v3 wire-protocol gateway to IBM i Db2 via Mapepire",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@ibm/mapepire-js": "0.6.1",
+    "dotenv": "17.4.2",
+    "node-sql-parser": "5.4.0",
+    "pg-gateway": "0.2.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^24.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.8.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^4.1.0"
+  }
+}

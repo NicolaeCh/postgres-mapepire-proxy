@@ -1,0 +1,19 @@
+sequenceDiagram
+  participant C as PostgreSQL client
+  participant G as pg-gateway / ProxySession
+  participant P as SessionJobPool
+  participant M as Mapepire
+  participant D as Db2 for i
+  C->>G: Startup + proxy credentials
+  G-->>C: AuthenticationOk
+  G->>P: acquire SQLJob
+  P-->>G: pinned job
+  C->>G: Query / Parse+Bind+Execute
+  G->>G: translate SQL + parameters
+  G->>M: SQL on pinned job
+  M->>D: JDBC request
+  D-->>M: rows + metadata
+  M-->>G: QueryResult
+  G-->>C: RowDescription + DataRows + CommandComplete
+  C-->>G: Terminate
+  G->>P: ROLLBACK + reset schema + release

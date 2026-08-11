@@ -1,0 +1,9 @@
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> InTransaction: BEGIN
+  InTransaction --> InTransaction: successful statement
+  InTransaction --> Failed: SQL error
+  Failed --> Idle: ROLLBACK
+  Failed --> Idle: COMMIT -> ROLLBACK
+  InTransaction --> Idle: COMMIT
+  InTransaction --> Idle: ROLLBACK

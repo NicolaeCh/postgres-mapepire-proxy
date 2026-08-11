@@ -1,0 +1,9 @@
+flowchart LR
+  Client[PostgreSQL clients\npsql / DBeaver / ORMs] -->|TCP 5432 PG v3| Gateway[pg-gateway]
+  Gateway --> Session[ProxySession]
+  Session --> Translator[SQL translation]
+  Session --> Catalog[Catalog compatibility]
+  Session -->|lease/pin SQLJob| Pool[Session-affinity Mapepire pool]
+  Pool -->|WSS 8076\nIBMI service user| Mapepire[Mapepire Server]
+  Mapepire --> Db2[(Db2 for IBM i)]
+  Health[HTTP :8080] --> Pool
