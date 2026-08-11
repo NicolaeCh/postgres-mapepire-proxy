@@ -117,4 +117,4 @@ Before declaring support for additional clients/ORM versions:
 6. add TLS/mTLS policy and external secret injection appropriate to the deployment platform;
 7. run load testing sized to IBM i job limits and the application's connection-pool behavior.
 
-These are broader compatibility-hardening items, not prerequisites for the pgAdmin 9.17 connection contract implemented in 0.1.7.
+These are broader compatibility-hardening items, not prerequisites for the pgAdmin 9.17 connection contract implemented through 0.1.8.

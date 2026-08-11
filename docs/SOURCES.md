@@ -57,3 +57,13 @@ Decision: 5.4.0. It is used as a secondary classifier, not as a complete Postgre
 - PostgreSQL 14 protocol message flow: https://www.postgresql.org/docs/14/protocol-flow.html
 - PostgreSQL 14 protocol message formats: https://www.postgresql.org/docs/14/protocol-message-formats.html
 - pg-gateway 0.2.4 connection implementation: https://github.com/supabase-community/pg-gateway/blob/v0.2.4/packages/pg-gateway/src/connection.ts
+
+
+## pgAdmin 9.17 / IBM i sources added for 0.1.8
+
+- pgAdmin REL-9_17 dashboard `dashboard_stats.sql`: exact `chart_name` / `chart_data` contract.
+- pgAdmin REL-9_17 database `acl.sql` and schema `acl.sql` / `defacl.sql`: exact privilege dictionary aliases.
+- pgAdmin REL-9_17 schema `properties.sql`, `nodes.sql`, `create.sql`, and `oid.sql`: browser/list/create contract.
+- pgAdmin REL-9_17 DBMS job scheduler backend check: scalar `COUNT(*)` extension probe.
+- IBM Db2 for i `QSYS2.SYSSCHEMAS`: live schema names/owners/text.
+- IBM Db2 for i `CREATE SCHEMA`: service-profile ownership/authorization semantics.

@@ -21,7 +21,7 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.7 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.8 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
@@ -103,3 +103,7 @@ node scripts/verify-startup-wire.mjs
 ```
 
 after `npm run build`, so a regression prevents image creation. The delivery workspace does not have a live pgAdmin + IBM i/Mapepire endpoint; the target PPC64LE/AMD64 build and a real pgAdmin connection remain deployment acceptance tests.
+
+## 0.1.8 pgAdmin browser/schema validation
+
+The live pgAdmin 9.17 error log supplied for 0.1.7 was used to derive browser regression contracts. In the delivery workspace, 22 TypeScript source/test files pass syntax transpilation. A full TypeScript `--noEmit` check also passes against local compatibility declarations for external packages; the target container build remains the authoritative dependency-resolved check. The compiled 0.1.8 browser and schema verification scripts pass and cover dashboard `chart_data`, scheduler scalar zero, database ACL keys, database properties, role/tablespace `description`, schema node/property rows, schema ACL/default-ACL dictionaries, stable schema OIDs, and CREATE SCHEMA translation. The SELECT-without-FROM rewrite was separately exercised with top-level WHERE/GROUP/HAVING to confirm `SYSIBM.SYSDUMMY1` is inserted before those clauses.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.8 - 2026-08-11
+
+- Extended pgAdmin 9.17 compatibility from connection startup into database/schema browser contracts.
+- Added exact dashboard `chart_name`/`chart_data`, database ACL/default ACL, scheduler, role-description and tablespace-description responses.
+- Added live IBM i schema navigation backed by `QSYS2.SYSSCHEMAS`, stable proxy schema OIDs, exact schema properties/ACL/default-ACL shapes, and configurable `PGADMIN_SCHEMA_CACHE_MS`.
+- Added basic pgAdmin CREATE SCHEMA translation: PostgreSQL `AUTHORIZATION` is not forwarded to IBM i because all backend DDL executes as the Mapepire service profile.
+- Schema comment/privilege/default-privilege/security-label batches are rejected before creation to avoid partial-success DDL.
+- Fixed SELECT-without-FROM translation so `SYSIBM.SYSDUMMY1` is inserted before WHERE/GROUP/HAVING/ORDER/OFFSET/FETCH.
+- Added `verify-pgadmin-browser.mjs` and `verify-pgadmin-schema.mjs` build gates plus regression tests.
+
 ## 0.1.7 - 2026-08-11
 
 - Audited the complete pgAdmin 4 REL-9_17 synchronous connect path, including the post-connect `replication_type.sql` helper.

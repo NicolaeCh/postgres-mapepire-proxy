@@ -85,14 +85,27 @@ podman inspect postgres-mapepire-proxy_postgres-mapepire-proxy_1 \
 podman logs --tail 200 postgres-mapepire-proxy_postgres-mapepire-proxy_1
 ```
 
-## pgAdmin 9.17 compiled-contract test (0.1.7)
+## pgAdmin 9.17 compiled-contract test (0.1.8)
 
-Every container build executes three tests after TypeScript compilation:
+Every container build executes five pgAdmin/protocol tests after TypeScript compilation:
 
 ```text
 node scripts/verify-pgadmin-compat.mjs
 node scripts/verify-pgadmin-wire.mjs
 node scripts/verify-startup-wire.mjs
+node scripts/verify-pgadmin-browser.mjs
+node scripts/verify-pgadmin-schema.mjs
 ```
 
 They check the exact pgAdmin 9.17 initialization batch elements, database metadata, `pg_stat_gssapi`, current-role capabilities, recovery-state query, the exact replication-type query with its mandatory single `type=NULL` row, database-tree shape, scalar SELECT translation through `SYSIBM.SYSDUMMY1`, PostgreSQL-system quarantine, psycopg3 portal Describe/Execute framing, and startup `ParameterStatus`/`BackendKeyData`/`ReadyForQuery` ordering.
+
+## pgAdmin 9.17 browser/schema qualification (0.1.8)
+
+A container build must additionally print:
+
+```text
+pgAdmin browser contract check OK
+pgAdmin IBM i schema contract check OK
+```
+
+On a live IBM i endpoint, register the server and verify: the Dashboard no longer returns `chart_data` HTTP 500 errors; Roles/Tablespaces do not fail on missing `description`; the Database SQL tab does not fail on a missing ACL `grantor`; expand Schemas and verify the expected IBM i SQL schemas from `QSYS2.SYSSCHEMAS`; select the SQL/Properties tabs for an application schema; create a test schema with only Name/Owner set and leave Comment/Privileges/Default privileges/Security labels empty; refresh and verify the new schema appears; remove the test schema with an IBM i-native administration tool until DROP SCHEMA support is qualified in the proxy.

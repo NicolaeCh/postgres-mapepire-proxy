@@ -89,4 +89,25 @@ describe('pgAdmin 9.17 compatibility contract', () => {
     expect(r.rows).toEqual([]);
     expect(containsUnhandledPostgresSystemSql(sql)).toBe(true);
   });
+  it('returns exact dashboard chart_data shape and scheduler scalar', () => {
+    const dash = pgAdminCompatibilityQuery(`/*pga4dash*/ SELECT 'session_stats' AS chart_name, pg_catalog.row_to_json(t) AS chart_data FROM (SELECT 0) t`, ctx)!;
+    expect(dash.fields.map((f) => f.name)).toEqual(['chart_name','chart_data']);
+    expect(dash.rows).toHaveLength(1);
+    expect(JSON.parse(String(dash.rows[0]![1]))).toEqual({ Total: 0, Active: 0, Idle: 0 });
+
+    const scheduler = pgAdminCompatibilityQuery(`SELECT COUNT(*) FROM pg_catalog.pg_extension WHERE extname IN ('edb_job_scheduler','dbms_scheduler')`, ctx)!;
+    expect(scheduler.rows).toEqual([[0]]);
+  });
+
+  it('returns exact browser ACL/description keys', () => {
+    const acl = pgAdminCompatibilityQuery(`SELECT 'datacl' AS deftype, COALESCE(gt.rolname,'PUBLIC') AS grantee, g.rolname AS grantor, array_agg(x) AS privileges, array_agg(y) AS grantable FROM pg_catalog.pg_database db, LATERAL pg_catalog.aclexplode(db.datacl) d GROUP BY gt.rolname,g.rolname`, ctx)!;
+    expect(acl.fields.map((f) => f.name)).toEqual(['deftype','grantee','grantor','privileges','grantable']);
+
+    const roles = pgAdminCompatibilityQuery(`SELECT r.oid, r.rolname, r.rolcanlogin, r.rolsuper, d.description FROM pg_catalog.pg_roles r LEFT JOIN pg_catalog.pg_shdescription d ON true`, ctx)!;
+    expect(roles.fields.map((f) => f.name)).toContain('description');
+
+    const tsp = pgAdminCompatibilityQuery(`SELECT spc.oid, spc.spcname AS name, pg_get_userbyid(spc.spcowner) AS owner, des.description FROM pg_catalog.pg_tablespace spc LEFT JOIN pg_catalog.pg_shdescription des ON true`, ctx)!;
+    expect(tsp.fields.map((f) => f.name)).toContain('description');
+  });
+
 });

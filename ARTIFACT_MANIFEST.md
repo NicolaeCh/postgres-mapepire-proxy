@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.7 reference implementation**
+Version: **0.1.8 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.7 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.7.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.8.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 
@@ -38,3 +38,8 @@ See `docs/VALIDATION.md`. This build environment could not resolve npm packages 
 ### 0.1.7 pgAdmin compatibility hardening
 
 `src/sql/pgadmin.ts` implements a Virtual PostgreSQL System Layer audited against pgAdmin 4 REL-9_17, including the connection-critical one-row replication-type response. The PostgreSQL startup adapter now emits ParameterStatus + BackendKeyData before ReadyForQuery, and the custom Extended Query engine returns RowDescription at portal Describe rather than Execute. `verify-pgadmin-compat.mjs`, `verify-pgadmin-wire.mjs`, and `verify-startup-wire.mjs` verify these compiled contracts during every image build. See `docs/PGADMIN_COMPATIBILITY.md` and `docs/BUILD_FIX_0.1.7.md`.
+
+
+### 0.1.8 pgAdmin database/schema browser contract
+
+`src/sql/pgadmin-ibmi.ts` provides the IBM i-backed pgAdmin schema contract using live `QSYS2.SYSSCHEMAS` rows and stable proxy OIDs. `src/sql/pgadmin.ts` adds exact dashboard/database/role/tablespace response shapes. `CREATE SCHEMA ... AUTHORIZATION ...` is mapped to service-user IBM i DDL, and the no-FROM translator now inserts `SYSIBM.SYSDUMMY1` before `WHERE/GROUP/HAVING/ORDER/OFFSET/FETCH`. The image build adds `verify-pgadmin-browser.mjs` and `verify-pgadmin-schema.mjs`.

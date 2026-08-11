@@ -226,3 +226,10 @@ The runtime executes as the non-root `node` user/group (UID/GID 1000) provided b
 7. **Transactions/errors** — pinned job, SQLSTATE, safe retries.
 8. **Operations** — health/readiness, graceful shutdown, multi-arch build.
 9. **Interoperability hardening** — capture DBeaver/ORM metadata queries and add deterministic compatibility handlers as required.
+
+
+## pgAdmin database/schema browser adapter (0.1.8)
+
+The pgAdmin adapter is split into a virtual PostgreSQL system layer and an IBM i-backed schema layer. PostgreSQL-only administration concepts remain synthetic. Schema browser requests for `pg_namespace` are recognized before the generic catalog path and resolved from `QSYS2.SYSSCHEMAS` using the session-affine Mapepire job. The adapter emits pgAdmin 9.17's exact schema field contracts and assigns stable synthetic PostgreSQL OIDs to IBM i SQL schema names.
+
+Basic pgAdmin `CREATE SCHEMA name AUTHORIZATION role` is translated to `CREATE SCHEMA name`. The PostgreSQL role is not sent as an IBM i authorization ID because the backend identity is the configured service user. Schema comments/ACL/default privileges/security labels are not falsely emulated; a create batch containing them is rejected before any DDL executes.

@@ -113,3 +113,46 @@ The image build fails if the SQL compatibility contract, the psycopg3 Extended Q
 ## Important limitation
 
 This compatibility layer is intended to let PostgreSQL clients connect and to let normal application SQL reach Db2 for i. It does **not** make IBM i a PostgreSQL server and it does not claim that PostgreSQL administration features (WAL, autovacuum, replication slots, PostgreSQL locks, extensions, roles, tablespaces, etc.) exist on IBM i.
+
+## 0.1.8 database/schema browser contract
+
+The database/schema browser is not handled by the generic PostgreSQL-system fallback. pgAdmin 9.17 consumes exact column aliases in its Python handlers, so 0.1.8 has explicit contracts for dashboard data, database ACL/default ACL, DBMS scheduler extension detection, role nodes, tablespace nodes, schema nodes, schema properties, schema ACL, and schema default ACL.
+
+Schema discovery is live rather than invented. For pgAdmin `pg_namespace` browser queries the session reads:
+
+```sql
+SELECT SCHEMA_NAME, SCHEMA_OWNER, SCHEMA_TEXT
+FROM QSYS2.SYSSCHEMAS
+ORDER BY SCHEMA_NAME
+```
+
+The result is cached per PostgreSQL session for `PGADMIN_SCHEMA_CACHE_MS` and invalidated after proxy-executed CREATE SCHEMA. A stable positive proxy OID is derived from each SQL schema name so pgAdmin can address the same schema on later requests.
+
+The PostgreSQL-visible `namespaceowner` is the PostgreSQL proxy login to keep pgAdmin's role model coherent. It is deliberately **not** an IBM i authority statement. Backend DDL executes under `IBMI_USER`.
+
+### CREATE SCHEMA
+
+pgAdmin normally emits:
+
+```sql
+CREATE SCHEMA "name" AUTHORIZATION "pg-role";
+```
+
+The proxy maps the basic form to:
+
+```sql
+CREATE SCHEMA "name"
+```
+
+because this deployment uses a fixed IBM i Mapepire service profile. PostgreSQL schema comments, schema GRANT/REVOKE, ALTER DEFAULT PRIVILEGES, and SECURITY LABEL are not claimed as IBM i-equivalent features. If pgAdmin includes any of them in the same create batch, 0.1.8 rejects the batch before creating the schema; leave those tabs/fields empty for the supported basic create path.
+
+## 0.1.8 build-time browser gates
+
+In addition to the startup and wire contracts, both container definitions run:
+
+```text
+node scripts/verify-pgadmin-browser.mjs
+node scripts/verify-pgadmin-schema.mjs
+```
+
+These verify the exact aliases/cardinality that pgAdmin dereferences and the IBM i-backed schema contract.

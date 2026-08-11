@@ -88,7 +88,7 @@ function ensureDb2SelectSource(sql: string): string {
   // PostgreSQL permits SELECT <expression> without FROM. Db2 for i requires
   // a row source for many such expressions. SYSIBM.SYSDUMMY1 is the canonical
   // one-row compatibility source and preserves PostgreSQL scalar semantics.
-  const clauses = ['order', 'offset', 'fetch'];
+  const clauses = ['where', 'group', 'having', 'order', 'offset', 'fetch'];
   let insertion = sql.length;
   for (const clause of clauses) {
     const pos = topLevelKeywordIndex(sql, clause);

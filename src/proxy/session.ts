@@ -16,6 +16,15 @@ import { syntheticCatalog } from '../sql/catalog.js';
 import { classify, isIdempotentRead, type StatementKind } from '../sql/classifier.js';
 import { environmentQuery, type SyntheticResult } from '../sql/environment.js';
 import { containsUnhandledPostgresSystemSql, pgAdminCompatibilityQuery } from '../sql/pgadmin.js';
+import {
+  classifyPgAdminIbmiSchemaQuery,
+  isPgSchemaComment,
+  isPgSchemaPrivilegeDdl,
+  planPgCreateSchema,
+  renderPgAdminIbmiSchemaQuery,
+  type CreateSchemaPlan,
+  type IbmiSchemaRow,
+} from '../sql/pgadmin-ibmi.js';
 import { reorderParameters, translateSql, type Translation } from '../sql/translator.js';
 
 interface PreparedStatement { sql: string; parameterOids: number[]; translation?: Translation; }
@@ -45,6 +54,7 @@ export class ProxySession {
   private chain: Promise<void> = Promise.resolve();
   private extendedError = false;
   private currentSchema = config.ibmi.defaultSchema;
+  private schemaCache?: { expiresAt: number; rows: IbmiSchemaRow[] };
   // Keep the TCP accumulation buffer typed as Uint8Array. Node 24's Buffer
   // definitions parameterize the backing ArrayBuffer type, and mixing buffers
   // returned by concat/subarray can otherwise produce Buffer<ArrayBuffer> vs
@@ -147,7 +157,7 @@ export class ProxySession {
       if (!stmt) throw sqlError('26000', `Prepared statement ${d.name} does not exist`);
       this.send(parameterDescription(stmt.parameterOids));
 
-      const local = this.resolveSynthetic(stmt.sql);
+      const local = await this.resolveSynthetic(stmt.sql);
       if (local) {
         this.validateSynthetic(local);
         if (local.fields.length) this.send(rowDescription(local.fields));
@@ -175,7 +185,7 @@ export class ProxySession {
     const stmt = this.prepared.get(portal.statementName);
     if (!stmt) throw sqlError('26000', `Prepared statement ${portal.statementName} does not exist`);
 
-    const local = this.resolveSynthetic(stmt.sql);
+    const local = await this.resolveSynthetic(stmt.sql);
     if (local) {
       this.validateSynthetic(local);
       portal.synthetic = local;
@@ -243,9 +253,29 @@ export class ProxySession {
     if (batch.length > 1) {
       const synthetic: SyntheticResult[] = [];
       for (const statement of batch) {
-        const result = environmentQuery(statement, this.client.database ?? 'ibmi', this.currentSchema)
-          ?? pgAdminCompatibilityQuery(statement, this.pgCompatContext());
+        const result = await this.resolveSynthetic(statement);
         if (!result) {
+          // pgAdmin can emit a CREATE SCHEMA plus optional schema-related DDL in
+          // one Simple Query message. Execute these one-by-one so PostgreSQL's
+          // semicolon batching does not leak into the Db2 translator. Unsupported
+          // ACL/comment clauses then fail with a precise feature error rather
+          // than the generic multi-statement error.
+          if (batch.some((item) => planPgCreateSchema(item))) {
+            // pgAdmin may append COMMENT/ACL/default-privilege/security-label
+            // statements to CREATE SCHEMA. Those PostgreSQL metadata semantics
+            // are not safely mappable to the IBM i service-user authority model.
+            // Reject the entire batch *before* creating the schema so pgAdmin
+            // cannot report failure after a partially successful DDL operation.
+            if (batch.some((item) => isPgSchemaComment(item) || isPgSchemaPrivilegeDdl(item))) {
+              throw sqlError(
+                '0A000',
+                'pgAdmin schema Comment/Privileges/Default privileges/Security labels are not supported by the IBM i service-user proxy; leave those fields empty and retry',
+              );
+            }
+            for (const item of batch) await this.executeSql(item, [], 0);
+            this.send(readyForQuery(this.txStatus()));
+            return;
+          }
           // Fall through to the normal path, which will enforce
           // SQL_ALLOW_MULTI_STATEMENT and reject unsafe/general batches.
           await this.executeSql(sql, [], 0);
@@ -264,6 +294,25 @@ export class ProxySession {
   }
 
   private async executeSql(sql: string, parameters: unknown[], maxRows: number, includeDescription = true): Promise<void> {
+    const createSchema = planPgCreateSchema(sql);
+    if (createSchema) {
+      await this.executeCreateSchema(createSchema);
+      this.send(commandComplete('CREATE SCHEMA'));
+      return;
+    }
+    if (isPgSchemaComment(sql)) {
+      throw sqlError(
+        '0A000',
+        'COMMENT ON SCHEMA is a PostgreSQL metadata feature with no direct Db2 for i equivalent in this service-user proxy; create the schema without a pgAdmin Comment value',
+      );
+    }
+    if (isPgSchemaPrivilegeDdl(sql)) {
+      throw sqlError(
+        '0A000',
+        'PostgreSQL schema GRANT/REVOKE/default privileges are not mapped to IBM i profiles when Mapepire uses a service user',
+      );
+    }
+
     if (isSavepointCommand(sql)) {
       throw sqlError('0A000', 'SAVEPOINT, RELEASE SAVEPOINT and ROLLBACK TO SAVEPOINT are not supported by proxy v0.1');
     }
@@ -306,16 +355,11 @@ export class ProxySession {
       return;
     }
 
-    const env = environmentQuery(sql, this.client.database ?? 'ibmi', this.currentSchema);
-    if (env) { this.sendSynthetic(env, includeDescription); return; }
-
-    const pgAdmin = pgAdminCompatibilityQuery(sql, this.pgCompatContext());
-    if (pgAdmin) { this.sendSynthetic(pgAdmin, includeDescription); return; }
+    const synthetic = await this.resolveSynthetic(sql);
+    if (synthetic) { this.sendSynthetic(synthetic, includeDescription); return; }
     if (rawKind === 'set') {
       throw sqlError('0A000', 'This PostgreSQL SET option is not supported by proxy v0.1');
     }
-    const cat = syntheticCatalog(sql);
-    if (cat) { this.sendSynthetic(cat, includeDescription); return; }
 
     // Never let an unhandled PostgreSQL system catalog/function fall through
     // into IBM i. This is a compatibility firewall, not a Db2 error mapper.
@@ -401,10 +445,75 @@ export class ProxySession {
     }
   }
 
-  private resolveSynthetic(sql: string): SyntheticResult | undefined {
-    return environmentQuery(sql, this.client.database ?? 'ibmi', this.currentSchema)
-      ?? pgAdminCompatibilityQuery(sql, this.pgCompatContext())
+  private async resolveSynthetic(sql: string): Promise<SyntheticResult | undefined> {
+    const env = environmentQuery(sql, this.client.database ?? 'ibmi', this.currentSchema);
+    if (env) return env;
+
+    // Schema browser queries need live IBM i catalog data and must be resolved
+    // before generic pg_roles/pg_catalog handlers can consume their subqueries.
+    const schemaRequest = classifyPgAdminIbmiSchemaQuery(sql);
+    if (schemaRequest) {
+      const schemas = await this.fetchIbmiSchemas();
+      return renderPgAdminIbmiSchemaQuery(schemaRequest, schemas, {
+        user: this.client.user ?? config.pg.user ?? 'proxy',
+        currentSchema: this.currentSchema,
+      });
+    }
+
+    return pgAdminCompatibilityQuery(sql, this.pgCompatContext())
       ?? syntheticCatalog(sql);
+  }
+
+  private async fetchIbmiSchemas(force = false): Promise<IbmiSchemaRow[]> {
+    if (!force && this.schemaCache && this.schemaCache.expiresAt > Date.now()) return this.schemaCache.rows;
+
+    const result = await this.executePaged(
+      'SELECT SCHEMA_NAME, SCHEMA_OWNER, SCHEMA_TEXT FROM QSYS2.SYSSCHEMAS ORDER BY SCHEMA_NAME',
+      [],
+      0,
+    );
+    if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+
+    const rows: IbmiSchemaRow[] = result.data.map((row: Record<string, unknown>) => ({
+      name: String(caseInsensitiveValue(row, 'SCHEMA_NAME') ?? '').trim(),
+      owner: String(caseInsensitiveValue(row, 'SCHEMA_OWNER') ?? '').trim(),
+      text: nullableString(caseInsensitiveValue(row, 'SCHEMA_TEXT')),
+    })).filter((row: IbmiSchemaRow) => row.name.length > 0);
+
+    this.schemaCache = { expiresAt: Date.now() + config.pg.pgadminSchemaCacheMs, rows };
+    return rows;
+  }
+
+  private async executeCreateSchema(plan: CreateSchemaPlan): Promise<void> {
+    if (plan.ifNotExists) {
+      const existing = (await this.fetchIbmiSchemas(true)).some(
+        (schema) => schema.name === plan.schemaName || schema.name.toUpperCase() === plan.schemaName.toUpperCase(),
+      );
+      if (existing) return;
+    }
+
+    if (plan.requestedAuthorization) {
+      this.logger.debug('Mapping PostgreSQL schema owner to Mapepire service-user ownership', {
+        schema: plan.schemaName,
+        requestedPostgresOwner: plan.requestedAuthorization,
+        ibmiServiceUser: config.ibmi.user,
+      });
+    }
+
+    try {
+      await this.currentJob().execute(plan.db2Sql);
+      if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+      this.schemaCache = undefined;
+    } catch (error) {
+      if (!this.inTransaction) {
+        try { await this.currentJob().execute('ROLLBACK'); } catch { /* best effort */ }
+      } else {
+        this.transactionFailed = true;
+      }
+      const mapped = mapDb2Error(error) as Error & { proxySql?: string };
+      mapped.proxySql = plan.db2Sql;
+      throw mapped;
+    }
   }
 
   private validateSynthetic(result: SyntheticResult): void {
@@ -530,6 +639,21 @@ function frontendMessageName(type: string): string {
     Q: 'Query', P: 'Parse', B: 'Bind', D: 'Describe', E: 'Execute',
     S: 'Sync', C: 'Close', H: 'Flush', X: 'Terminate',
   } as Record<string, string>)[type] ?? type;
+}
+
+function caseInsensitiveValue(row: Record<string, unknown>, name: string): unknown {
+  if (Object.prototype.hasOwnProperty.call(row, name)) return row[name];
+  const wanted = name.toUpperCase();
+  for (const [key, value] of Object.entries(row)) {
+    if (key.toUpperCase() === wanted) return value;
+  }
+  return undefined;
+}
+
+function nullableString(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text.length ? text : null;
 }
 
 function splitSimpleStatements(sql: string): string[] {

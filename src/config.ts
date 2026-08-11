@@ -93,6 +93,7 @@ export const config = {
     idleTimeoutMs: num('PG_CLIENT_IDLE_TIMEOUT_MS', 1_800_000),
     maxFrontendMessageBytes: num('PG_MAX_FRONTEND_MESSAGE_BYTES', 16 * 1024 * 1024),
     protocolTrace: bool('PG_PROTOCOL_TRACE', false),
+    pgadminSchemaCacheMs: num('PGADMIN_SCHEMA_CACHE_MS', 10_000),
     authMode: authMode(),
     user: process.env.PG_PROXY_USER?.trim() || '',
     password: process.env.PG_PROXY_PASSWORD || '',

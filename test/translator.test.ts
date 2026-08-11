@@ -27,6 +27,13 @@ describe('SQL translation', () => {
     expect(translateSql('select now() as ts', opts).sql)
       .toBe('SELECT CURRENT TIMESTAMP AS TS FROM SYSIBM.SYSDUMMY1');
   });
+
+  it('inserts SYSIBM.SYSDUMMY1 before WHERE/GROUP/HAVING clauses', () => {
+    expect(translateSql('select 1 as ok where 1=1', opts).sql)
+      .toBe('SELECT 1 AS OK FROM SYSIBM.SYSDUMMY1 WHERE 1=1');
+    expect(translateSql('select count(*) as c group by 1 having count(*) > 0', opts).sql)
+      .toMatch(/^SELECT COUNT\(\*\) AS C FROM SYSIBM\.SYSDUMMY1 GROUP BY 1 HAVING COUNT\(\*\) > 0$/i);
+  });
   it('rejects multiple statements', () => {
     expect(() => translateSql('select 1; delete from x', opts)).toThrow(/Multiple SQL/);
   });

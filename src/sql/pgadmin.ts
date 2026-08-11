@@ -128,6 +128,41 @@ export function pgAdminCompatibilityQuery(
     };
   }
 
+  // pgAdmin dashboard queries are marked with /*pga4dash*/ and expect an
+  // exact two-column contract: chart_name + chart_data(JSON). Returning a
+  // generic projected/empty result causes pgAdmin itself to raise KeyError.
+  if (/\/\*\s*pga4dash\s*\*\//i.test(sql) && /\bchart_data\b/i.test(s)) {
+    return syntheticDashboardStats(s);
+  }
+
+  // pgAdmin probes whether the EDB DBMS Job Scheduler extensions are present.
+  // execute_scalar() requires a numeric first row; NULL/zero-row is not safe.
+  if (/\b(?:pg_catalog\.)?pg_extension\b/i.test(s)
+      && /\bcount\s*\(/i.test(s)
+      && /(?:edb_job_scheduler|dbms_scheduler)/i.test(s)) {
+    return { fields: [int8(projectedAlias(s) ?? 'count')], rows: [[0]], tag: 'SELECT 1' };
+  }
+
+  // Database ACL/default-ACL queries must be recognized before the generic
+  // pg_database handler. pgAdmin's Python formatter expects grantor/grantee
+  // dictionary keys even when there are no PostgreSQL ACLs to represent.
+  if (/\b(?:pg_catalog\.)?pg_database\b/i.test(s)
+      && /\b(?:aclexplode|datacl)\b/i.test(s)
+      && /\bgrantor\b/i.test(s) && /\bgrantee\b/i.test(s)) {
+    return {
+      fields: [text('deftype'), text('grantee'), text('grantor'), text('privileges'), text('grantable')],
+      rows: [], tag: 'SELECT 0',
+    };
+  }
+  if (/\bpg_default_acl\b/i.test(s)
+      && /\bgrantor\b/i.test(s) && /\bgrantee\b/i.test(s)
+      && /\b(?:pg_database|datname|defacl)\b/i.test(s)) {
+    return {
+      fields: [text('deftype'), text('acltype'), text('grantee'), text('grantor'), text('privileges'), text('grantable')],
+      rows: [], tag: 'SELECT 0',
+    };
+  }
+
   // pgAdmin's >= PostgreSQL 12 initialization query. It only needs to know
   // whether this connection is GSS-authenticated/encrypted.
   if (/\b(?:pg_catalog\.)?pg_stat_gssapi\b/i.test(s)) {
@@ -147,14 +182,14 @@ export function pgAdminCompatibilityQuery(
 
   // pgAdmin asks pg_database both during _initialize() and for its database
   // browser tree. One proxy listener represents one IBM i database endpoint.
-  if (/\b(?:pg_catalog\.)?pg_database\b/i.test(s)) return syntheticPgDatabase(s, context.database);
+  if (/\b(?:pg_catalog\.)?pg_database\b/i.test(s)) return syntheticPgDatabase(s, context.database, context.user);
 
   // Recovery check and role/capability setup.
   if (/\b(?:pg_catalog\.)?pg_user\b/i.test(s)) return syntheticPgUser(s, context.user);
   if (/\b(?:pg_catalog\.)?pg_roles\b/i.test(s)) return syntheticPgRoles(s, context.user);
 
   if (/\b(?:pg_catalog\.)?pg_tablespace\b/i.test(s) && !/\bpg_database\b/i.test(s)) {
-    return syntheticPgTablespace(s);
+    return syntheticPgTablespace(s, context.user);
   }
 
   // pgAdmin dashboard settings pane. Return a small truthful virtual settings
@@ -205,8 +240,29 @@ export function containsUnhandledPostgresSystemSql(sql: string): boolean {
   return false;
 }
 
-function syntheticPgDatabase(sql: string, database: string): SyntheticResult {
+function syntheticPgDatabase(sql: string, database: string, user: string): SyntheticResult {
   const db = database || 'ibmi';
+
+  // pgAdmin database Properties/SQL tab contract. This is intentionally a
+  // virtual PostgreSQL database layered over one IBM i relational database.
+  if (/\bspcoid\b/i.test(sql) || /\bdatowner\b/i.test(sql)
+      || /\bdatcollate\b/i.test(sql) || /\bdatctype\b/i.test(sql)
+      || /\bdatconnlimit\b/i.test(sql) || /\bdefault_tablespace\b/i.test(sql)
+      || /\btblacl\b/i.test(sql) || /\bseqacl\b/i.test(sql) || /\bfuncacl\b/i.test(sql)) {
+    return {
+      fields: [
+        oid('did'), oid('oid'), text('name'), oid('spcoid'), text('spcname'), bool('datallowconn'),
+        text('encoding'), text('datowner'), text('datcollate'), text('datctype'), int4('datconnlimit'),
+        bool('cancreate'), text('default_tablespace'), text('comments'), bool('is_template'),
+        text('tblacl'), text('seqacl'), text('funcacl'), text('acl'),
+      ],
+      rows: [[
+        16384, 16384, db, 1663, 'pg_default', true, 'UTF8', user, 'C', 'C', -1,
+        true, 'pg_default', null, false, null, null, null, null,
+      ]],
+      tag: 'SELECT 1',
+    };
+  }
 
   if (/\bdatname\s+as\s+name\b/i.test(sql)) {
     const fields = [
@@ -293,11 +349,10 @@ function syntheticPgRoles(sql: string, user: string): SyntheticResult {
   }
 
   if (/\brolcanlogin\b/i.test(sql) || /\brolsuper\b/i.test(sql)) {
-    return {
-      fields: [oid('oid'), text('rolname'), bool('rolcanlogin'), bool('rolsuper')],
-      rows: [[10, user, true, false]],
-      tag: 'SELECT 1',
-    };
+    const fields: FieldDescription[] = [oid('oid'), text('rolname'), bool('rolcanlogin'), bool('rolsuper')];
+    const row: unknown[] = [10, user, true, false];
+    if (/\bdescription\b/i.test(sql)) { fields.push(text('description')); row.push(null); }
+    return { fields, rows: [row], tag: 'SELECT 1' };
   }
   return {
     fields: [oid('oid'), text('rolname')],
@@ -306,13 +361,12 @@ function syntheticPgRoles(sql: string, user: string): SyntheticResult {
   };
 }
 
-function syntheticPgTablespace(sql: string): SyntheticResult {
+function syntheticPgTablespace(sql: string, user: string): SyntheticResult {
   if (/\bspcname\s+as\s+name\b/i.test(sql)) {
-    return {
-      fields: [oid('oid'), text('name'), oid('owner')],
-      rows: [[1663, 'pg_default', 10]],
-      tag: 'SELECT 1',
-    };
+    const fields: FieldDescription[] = [oid('oid'), text('name'), text('owner')];
+    const row: unknown[] = [1663, 'pg_default', user];
+    if (/\bdescription\b/i.test(sql)) { fields.push(text('description')); row.push(null); }
+    return { fields, rows: [row], tag: 'SELECT 1' };
   }
   return {
     fields: [oid('oid'), text('spcname'), oid('spcowner')],
@@ -356,6 +410,34 @@ function syntheticServerIdentity(sql: string, context: PgAdminCompatContext): Sy
   }
 
   return { fields, rows: [row], tag: 'SELECT 1' };
+}
+
+function syntheticDashboardStats(sql: string): SyntheticResult {
+  const definitions: Record<string, Record<string, number>> = {
+    session_stats: { Total: 0, Active: 0, Idle: 0 },
+    tps_stats: { Transactions: 0, Commits: 0, Rollbacks: 0 },
+    ti_stats: { Inserts: 0, Updates: 0, Deletes: 0 },
+    to_stats: { Fetched: 0, Returned: 0 },
+    bio_stats: { Reads: 0, Hits: 0 },
+  };
+
+  const requested: string[] = [];
+  for (const name of Object.keys(definitions)) {
+    if (new RegExp(`['\"]${name}['\"]`, 'i').test(sql)) requested.push(name);
+  }
+  // Defensive fallback for a future pgAdmin chart query: preserve the exact
+  // structural contract even if we do not yet recognize its metric semantics.
+  if (!requested.length) {
+    const m = sql.match(/['"]([a-z0-9_]+)['"]\s+as\s+chart_name/i);
+    if (m) requested.push(m[1]!);
+  }
+
+  const rows = requested.map((name) => [name, JSON.stringify(definitions[name] ?? {})]);
+  return {
+    fields: [text('chart_name'), json('chart_data')],
+    rows,
+    tag: `SELECT ${rows.length}`,
+  };
 }
 
 function isVirtualMonitoringSql(sql: string): boolean {
@@ -614,7 +696,7 @@ function evaluateBuiltinExpression(
     return { field: int4(alias ?? 'inet_server_port'), value: context.serverPort ?? 5432 };
   }
   if (/^version\s*\(\s*\)$/i.test(core)) {
-    return { field: text(alias ?? 'version'), value: 'PostgreSQL 14.0 compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.7)' };
+    return { field: text(alias ?? 'version'), value: 'PostgreSQL 14.0 compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.8)' };
   }
   const setting = core.match(/^(?:pg_catalog\.)?current_setting\s*\(\s*'([^']+)'(?:\s*,\s*(?:true|false))?\s*\)$/i);
   if (setting) {
