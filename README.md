@@ -36,11 +36,11 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.6 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.6
+podman build -t postgres-mapepire-proxy:0.1.7 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.7
 ```
 
-During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced.
+During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs the pgAdmin SQL compatibility, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
 
 5. Test:
 
@@ -88,8 +88,8 @@ This is intentionally a **compatibility proxy**, not an implementation of the Po
 
 `SAVEPOINT`/`ROLLBACK TO SAVEPOINT`, PostgreSQL `CancelRequest`, binary result format and full PostgreSQL catalog emulation are not implemented. Common client `SET statement_timeout`/`lock_timeout` initialization commands are accepted as no-ops; they do not cancel IBM i work. See `docs/COMPATIBILITY.md`.
 
-## pgAdmin 4 compatibility (0.1.6)
+## pgAdmin 4 compatibility (0.1.7)
 
-The proxy now implements a Virtual PostgreSQL System Layer audited against pgAdmin 4 9.17. PostgreSQL system introspection (`pg_catalog`, `pg_stat_*`, recovery/WAL, role capabilities and settings) is handled locally and cannot leak into Db2 for i. Normal application SQL continues through the translation/Mapepire path. See `docs/PGADMIN_COMPATIBILITY.md`.
+The proxy now implements a Virtual PostgreSQL System Layer audited against pgAdmin 4 9.17. PostgreSQL system introspection (`pg_catalog`, `pg_stat_*`, recovery/WAL, role capabilities and settings) is handled locally and cannot leak into Db2 for i. Release 0.1.7 also implements pgAdmin's post-connect replication-type contract (one `type=NULL` row when no PostgreSQL replication exists) and corrects psycopg3 Extended Query Describe/Execute framing. Normal application SQL continues through the translation/Mapepire path. See `docs/PGADMIN_COMPATIBILITY.md`.
 
 For pgAdmin 9.17 use `PG_SERVER_VERSION=14.0`; if reusing an `.env` from 0.1.5 or earlier, update that value explicitly.

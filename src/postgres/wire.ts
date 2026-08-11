@@ -75,6 +75,13 @@ export function readyForQuery(status: 'I' | 'T' | 'E'): Buffer {
   return frame('Z', Buffer.from(status));
 }
 
+export function backendKeyData(processId: number, secretKey: number): Buffer {
+  const payload = Buffer.allocUnsafe(8);
+  payload.writeInt32BE(processId | 0, 0);
+  payload.writeInt32BE(secretKey | 0, 4);
+  return frame('K', payload);
+}
+
 export function errorResponse(input: {
   severity?: string;
   code?: string;

@@ -19,9 +19,21 @@ import { containsUnhandledPostgresSystemSql, pgAdminCompatibilityQuery } from '.
 import { reorderParameters, translateSql, type Translation } from '../sql/translator.js';
 
 interface PreparedStatement { sql: string; parameterOids: number[]; translation?: Translation; }
-interface Portal { statementName: string; parameters: unknown[]; resultFormats: number[]; }
+interface BufferedDb2Execution {
+  translation: Translation;
+  result: QueryResult<Record<string, unknown>>;
+}
+interface Portal {
+  statementName: string;
+  parameters: unknown[];
+  resultFormats: number[];
+  descriptionSent: boolean;
+  synthetic?: SyntheticResult;
+  bufferedDb2?: BufferedDb2Execution;
+}
 
-export interface ClientInfo { user?: string; database?: string; applicationName?: string; }
+
+export interface ClientInfo { user?: string; database?: string; applicationName?: string; backendPid?: number; }
 
 export class ProxySession {
   private job?: SQLJobInstance;
@@ -57,6 +69,13 @@ export class ProxySession {
       const parsed = consumeFrontendMessages(this.frontendBuffer, config.pg.maxFrontendMessageBytes);
       this.frontendBuffer = parsed.remainder;
       for (const msg of parsed.messages) {
+        if (config.pg.protocolTrace) {
+          this.logger.info('PostgreSQL frontend protocol message', {
+            type: frontendMessageName(msg.type),
+            applicationName: this.client.applicationName,
+            database: this.client.database,
+          });
+        }
         // PostgreSQL extended-query protocol requires the backend to ignore
         // messages after an error until Sync (or Terminate) arrives.
         if (this.extendedError && msg.type !== 'S' && msg.type !== 'X') continue;
@@ -112,7 +131,12 @@ export class ProxySession {
     if (b.resultFormats.some((f) => f === 1)) throw sqlError('0A000', 'Binary result format is not supported; request text results');
     const formats = normalizeFormats(b.parameterFormats, b.parameterValues.length);
     const values = b.parameterValues.map((v, i) => decodeParameterValue(v, formats[i] ?? 0, stmt.parameterOids[i] ?? 0));
-    this.portals.set(b.portal, { statementName: b.statement, parameters: values, resultFormats: b.resultFormats });
+    this.portals.set(b.portal, {
+      statementName: b.statement,
+      parameters: values,
+      resultFormats: b.resultFormats,
+      descriptionSent: false,
+    });
     this.send(bindComplete());
   }
 
@@ -122,13 +146,62 @@ export class ProxySession {
       const stmt = this.prepared.get(d.name);
       if (!stmt) throw sqlError('26000', `Prepared statement ${d.name} does not exist`);
       this.send(parameterDescription(stmt.parameterOids));
-      // Mapepire exposes result metadata on execution rather than a prepare-only describe call.
-      // NoData is protocol-valid; actual RowDescription is returned at Execute time.
-      this.send(noData());
-    } else {
-      if (!this.portals.has(d.name)) throw sqlError('34000', `Portal ${d.name} does not exist`);
-      this.send(noData());
+
+      const local = this.resolveSynthetic(stmt.sql);
+      if (local) {
+        this.validateSynthetic(local);
+        if (local.fields.length) this.send(rowDescription(local.fields));
+        else this.send(noData());
+        return;
+      }
+
+      // A statement-level Describe happens before Bind, so Mapepire cannot
+      // provide exact metadata for parameterized Db2 queries. pgAdmin/psycopg3
+      // describes the bound portal instead (P), which is handled below.
+      // Commands that cannot return rows may still be described accurately.
+      if (!statementMayReturnRows(classify(stmt.sql))) {
+        this.send(noData());
+        return;
+      }
+
+      throw sqlError(
+        '0A000',
+        'Statement-level Describe for Db2 rowsets is not supported; bind and Describe a portal instead',
+      );
     }
+
+    const portal = this.portals.get(d.name);
+    if (!portal) throw sqlError('34000', `Portal ${d.name} does not exist`);
+    const stmt = this.prepared.get(portal.statementName);
+    if (!stmt) throw sqlError('26000', `Prepared statement ${portal.statementName} does not exist`);
+
+    const local = this.resolveSynthetic(stmt.sql);
+    if (local) {
+      this.validateSynthetic(local);
+      portal.synthetic = local;
+      portal.descriptionSent = true;
+      if (local.fields.length) this.send(rowDescription(local.fields));
+      else this.send(noData());
+      return;
+    }
+
+    const kind = classify(stmt.sql);
+    if (!statementMayReturnRows(kind)) {
+      portal.descriptionSent = true;
+      this.send(noData());
+      return;
+    }
+
+    // Mapepire exposes result metadata only when a query is executed. To bridge
+    // that API to PostgreSQL's portal Describe contract, materialize read-only
+    // rowsets once at Describe time, retain the result, and send only DataRow /
+    // CommandComplete when Execute arrives. This is intentionally limited to
+    // read-only statement kinds; writes are never executed during Describe.
+    portal.bufferedDb2 = await this.materializeReadPortal(stmt.sql, portal.parameters);
+    portal.descriptionSent = true;
+    const fields = mapepireFields(portal.bufferedDb2.result);
+    if (portal.bufferedDb2.result.has_results) this.send(rowDescription(fields));
+    else this.send(noData());
   }
 
   private closePrepared(body: Buffer): void {
@@ -144,7 +217,19 @@ export class ProxySession {
     if (!portal) throw sqlError('34000', `Portal ${e.portal} does not exist`);
     const stmt = this.prepared.get(portal.statementName);
     if (!stmt) throw sqlError('26000', `Prepared statement ${portal.statementName} does not exist`);
-    await this.executeSql(stmt.sql, portal.parameters, e.maxRows);
+
+    if (portal.synthetic) {
+      this.sendSynthetic(portal.synthetic, !portal.descriptionSent);
+      return;
+    }
+    if (portal.bufferedDb2) {
+      const { result, translation } = portal.bufferedDb2;
+      if (result.has_results) this.sendMapepireRows(result, e.maxRows, !portal.descriptionSent);
+      this.send(commandComplete(commandTag(translation.kind, result)));
+      return;
+    }
+
+    await this.executeSql(stmt.sql, portal.parameters, e.maxRows, !portal.descriptionSent);
   }
 
   private async simpleQuery(sql: string): Promise<void> {
@@ -178,7 +263,7 @@ export class ProxySession {
     this.send(readyForQuery(this.txStatus()));
   }
 
-  private async executeSql(sql: string, parameters: unknown[], maxRows: number): Promise<void> {
+  private async executeSql(sql: string, parameters: unknown[], maxRows: number, includeDescription = true): Promise<void> {
     if (isSavepointCommand(sql)) {
       throw sqlError('0A000', 'SAVEPOINT, RELEASE SAVEPOINT and ROLLBACK TO SAVEPOINT are not supported by proxy v0.1');
     }
@@ -222,15 +307,15 @@ export class ProxySession {
     }
 
     const env = environmentQuery(sql, this.client.database ?? 'ibmi', this.currentSchema);
-    if (env) { this.sendSynthetic(env); return; }
+    if (env) { this.sendSynthetic(env, includeDescription); return; }
 
     const pgAdmin = pgAdminCompatibilityQuery(sql, this.pgCompatContext());
-    if (pgAdmin) { this.sendSynthetic(pgAdmin); return; }
+    if (pgAdmin) { this.sendSynthetic(pgAdmin, includeDescription); return; }
     if (rawKind === 'set') {
       throw sqlError('0A000', 'This PostgreSQL SET option is not supported by proxy v0.1');
     }
     const cat = syntheticCatalog(sql);
-    if (cat) { this.sendSynthetic(cat); return; }
+    if (cat) { this.sendSynthetic(cat, includeDescription); return; }
 
     // Never let an unhandled PostgreSQL system catalog/function fall through
     // into IBM i. This is a compatibility firewall, not a Db2 error mapper.
@@ -269,7 +354,7 @@ export class ProxySession {
       throw mapped;
     }
 
-    if (result.has_results) this.sendMapepireRows(result, maxRows);
+    if (result.has_results) this.sendMapepireRows(result, maxRows, includeDescription);
     this.send(commandComplete(commandTag(translation.kind, result)));
   }
 
@@ -316,21 +401,78 @@ export class ProxySession {
     }
   }
 
-  private sendSynthetic(result: SyntheticResult): void {
+  private resolveSynthetic(sql: string): SyntheticResult | undefined {
+    return environmentQuery(sql, this.client.database ?? 'ibmi', this.currentSchema)
+      ?? pgAdminCompatibilityQuery(sql, this.pgCompatContext())
+      ?? syntheticCatalog(sql);
+  }
+
+  private validateSynthetic(result: SyntheticResult): void {
+    for (const [index, row] of result.rows.entries()) {
+      if (row.length !== result.fields.length) {
+        throw sqlError(
+          'XX000',
+          `Synthetic PostgreSQL result shape mismatch at row ${index}: ${row.length} values for ${result.fields.length} fields`,
+        );
+      }
+    }
+  }
+
+  private sendSynthetic(result: SyntheticResult, includeDescription = true): void {
+    this.validateSynthetic(result);
     if (result.fields.length) {
-      this.send(rowDescription(result.fields));
+      if (includeDescription) this.send(rowDescription(result.fields));
       for (const row of result.rows) this.send(dataRow(row));
     }
     this.send(commandComplete(result.tag));
   }
 
-  private sendMapepireRows(result: QueryResult<Record<string, unknown>>, maxRows: number): void {
+  private sendMapepireRows(
+    result: QueryResult<Record<string, unknown>>,
+    maxRows: number,
+    includeDescription = true,
+  ): void {
     const columns = result.metadata?.columns ?? [];
     const fields = columns.map(columnToField);
-    this.send(rowDescription(fields));
+    if (includeDescription) this.send(rowDescription(fields));
     const rows = maxRows > 0 ? result.data.slice(0, maxRows) : result.data;
     for (const row of rows) {
       this.send(dataRow(columns.map((c) => getRowValue(row, c))));
+    }
+  }
+
+  private async materializeReadPortal(sql: string, parameters: unknown[]): Promise<BufferedDb2Execution> {
+    const kind = classify(sql);
+    if (!statementMayReturnRows(kind) || !isIdempotentRead(kind)) {
+      throw sqlError('0A000', 'Only read-only rowsets can be materialized during portal Describe');
+    }
+
+    let translation: Translation;
+    try {
+      translation = translateSql(sql, config.sql);
+      if (config.sql.logText) this.logger.info('Translated SQL for portal Describe', { original: sql, db2: translation.sql });
+    } catch (error) {
+      throw error;
+    }
+
+    const values = reorderParameters(parameters, translation.parameterOrder);
+    try {
+      const result = await this.executeWithSafeRetry(translation, values, 0);
+      // This compatibility bridge executes a read rowset at Describe time in
+      // order to obtain the metadata Mapepire only returns on execution. End an
+      // implicit read transaction immediately; explicit transactions remain
+      // under the PostgreSQL session's control.
+      if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+      return { translation, result };
+    } catch (error) {
+      if (this.inTransaction) {
+        this.transactionFailed = true;
+      } else {
+        try { await this.currentJob().execute('ROLLBACK'); } catch { /* best effort */ }
+      }
+      const mapped = mapDb2Error(error) as Error & { proxySql?: string };
+      mapped.proxySql = sql;
+      throw mapped;
     }
   }
 
@@ -347,6 +489,7 @@ export class ProxySession {
       currentSchema: this.currentSchema,
       serverPort: config.pg.port,
       systemIdentifier: numeric.toString(10),
+      backendPid: this.client.backendPid,
     };
   }
 
@@ -380,6 +523,13 @@ export class ProxySession {
       await this.pool.release(job);
     }
   }
+}
+
+function frontendMessageName(type: string): string {
+  return ({
+    Q: 'Query', P: 'Parse', B: 'Bind', D: 'Describe', E: 'Execute',
+    S: 'Sync', C: 'Close', H: 'Flush', X: 'Terminate',
+  } as Record<string, string>)[type] ?? type;
 }
 
 function splitSimpleStatements(sql: string): string[] {
@@ -434,6 +584,14 @@ function normalizeFormats(formats: number[], count: number): number[] {
 function columnToField(c: ColumnMetaData): FieldDescription {
   const pg = db2TypeToPg(c.type, c.precision);
   return { name: c.label || c.name, typeOid: pg.oid, typeSize: pg.size, typeModifier: -1, format: 0 };
+}
+
+function mapepireFields(result: QueryResult<Record<string, unknown>>): FieldDescription[] {
+  return (result.metadata?.columns ?? []).map(columnToField);
+}
+
+function statementMayReturnRows(kind: StatementKind): boolean {
+  return kind === 'select' || kind === 'values';
 }
 
 function getRowValue(row: Record<string, unknown>, c: ColumnMetaData): unknown {

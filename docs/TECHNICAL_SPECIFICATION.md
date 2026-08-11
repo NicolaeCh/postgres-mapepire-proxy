@@ -82,7 +82,7 @@ Because backend jobs are reused under one IBM i service identity, the proxy must
 
 ## 5. PostgreSQL wire protocol
 
-`pg-gateway` 0.2.4 handles StartupMessage, optional TLS negotiation and proxy-local authentication. Its 0.2.x query path is intentionally not used: after successful authentication, the proxy calls `detach()` and owns the authenticated socket. The proxy parser then incrementally reassembles PostgreSQL frontend frames and dispatches Query/Parse/Bind/Describe/Execute/Sync/Close/Terminate. This avoids coupling correctness to TCP packet boundaries and avoids the incomplete `onQuery` path in pg-gateway 0.2.x.
+`pg-gateway` 0.2.4 handles StartupMessage, optional TLS negotiation and proxy-local authentication. A small subclass corrects startup completion for this backend: `AuthenticationOk` is followed by PostgreSQL `ParameterStatus` frames and `BackendKeyData`, and `ReadyForQuery` is delayed until a Mapepire SQLJob has been leased and the custom protocol parser is attached. The upstream 0.2.x query path is intentionally not used: after authentication, the proxy calls `detach()` and owns the authenticated socket. The proxy parser then incrementally reassembles PostgreSQL frontend frames and dispatches Query/Parse/Bind/Describe/Execute/Sync/Close/Terminate. This avoids coupling correctness to TCP packet boundaries and avoids the incomplete query path in pg-gateway 0.2.x.
 
 ### Simple Query
 
@@ -94,14 +94,14 @@ Supported frontend messages:
 
 - `P` Parse — stores named/unnamed SQL and declared parameter OIDs.
 - `B` Bind — decodes parameter values and creates a portal.
-- `D` Describe — ParameterDescription plus `NoData`; Mapepire produces definitive result metadata at execution time.
-- `E` Execute — executes the portal and returns result frames.
+- `D` Describe — statement Describe returns `ParameterDescription` followed by `RowDescription`/`NoData` when that metadata can be determined locally. Portal Describe returns `RowDescription` for row-producing portals or `NoData` for commands. For Db2 read portals, Mapepire metadata is materialized once at Describe time and buffered because Mapepire exposes definitive result metadata only during execution.
+- `E` Execute — returns DataRow(s) and CommandComplete for a described rowset and does **not** repeat RowDescription, matching PostgreSQL Extended Query semantics.
 - `S` Sync — returns ReadyForQuery.
 - `C` Close — closes local statement/portal metadata.
 - `H` Flush — no-op because responses are immediately written.
 - `X` Terminate — releases the Mapepire lease.
 
-Result data is emitted in PostgreSQL text format. Common binary parameter encodings are decoded for bool, int2/int4/int8 and float4/float8. `bytea` bind parameters are rejected in v0.1; BLOB/binary result values are still serialized as PostgreSQL `bytea` text (`\x...`). Extended-protocol errors enter the PostgreSQL error-recovery state: messages are ignored until `Sync`, then `ReadyForQuery` is emitted. Mapepire result sets are fetched in pages using `execute(rows)` / `fetchMore(rows)`; the page size is controlled by `MAPEPIRE_FETCH_SIZE`.
+Writes are never executed during Describe. Result data is emitted in PostgreSQL text format. Common binary parameter encodings are decoded for bool, int2/int4/int8 and float4/float8. `bytea` bind parameters are rejected in v0.1; BLOB/binary result values are still serialized as PostgreSQL `bytea` text (`\x...`). Extended-protocol errors enter the PostgreSQL error-recovery state: messages are ignored until `Sync`, then `ReadyForQuery` is emitted. Mapepire result sets are fetched in pages using `execute(rows)` / `fetchMore(rows)`; the page size is controlled by `MAPEPIRE_FETCH_SIZE`.
 
 ## 6. Transaction mapping
 

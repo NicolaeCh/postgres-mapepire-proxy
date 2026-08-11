@@ -85,6 +85,14 @@ podman inspect postgres-mapepire-proxy_postgres-mapepire-proxy_1 \
 podman logs --tail 200 postgres-mapepire-proxy_postgres-mapepire-proxy_1
 ```
 
-## pgAdmin 9.17 compiled-contract test (0.1.6)
+## pgAdmin 9.17 compiled-contract test (0.1.7)
 
-Every container build executes `node scripts/verify-pgadmin-compat.mjs` after TypeScript compilation. It checks the exact pgAdmin 9.17 initialization batch elements, database metadata, `pg_stat_gssapi`, current-role capabilities, recovery-state query, database-tree shape, scalar SELECT translation through `SYSIBM.SYSDUMMY1`, and the system-query quarantine fallback.
+Every container build executes three tests after TypeScript compilation:
+
+```text
+node scripts/verify-pgadmin-compat.mjs
+node scripts/verify-pgadmin-wire.mjs
+node scripts/verify-startup-wire.mjs
+```
+
+They check the exact pgAdmin 9.17 initialization batch elements, database metadata, `pg_stat_gssapi`, current-role capabilities, recovery-state query, the exact replication-type query with its mandatory single `type=NULL` row, database-tree shape, scalar SELECT translation through `SYSIBM.SYSDUMMY1`, PostgreSQL-system quarantine, psycopg3 portal Describe/Execute framing, and startup `ParameterStatus`/`BackendKeyData`/`ReadyForQuery` ordering.

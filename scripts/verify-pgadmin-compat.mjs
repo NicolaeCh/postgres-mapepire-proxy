@@ -71,6 +71,38 @@ SELECT CASE WHEN usesuper
 FROM pg_catalog.pg_user WHERE usename=current_user`,
 ['inrecovery','isreplaypaused']);
 
+// pgAdmin calls this immediately after connect and its Python helper does
+// res['rows'][0]['type']; this MUST be exactly one row, even when type is NULL.
+const replicationType = expectFields(`
+SELECT CASE
+WHEN (SELECT count(extname) FROM pg_catalog.pg_extension WHERE extname='bdr') > 0
+THEN 'pgd'
+WHEN (SELECT COUNT(*) FROM pg_catalog.pg_replication_slots) > 0
+THEN 'log'
+ELSE NULL
+END as type`, ['type']);
+assert.equal(replicationType.rows.length, 1);
+assert.equal(replicationType.rows[0][0], null);
+
+// Generic PostgreSQL-system quarantine must preserve PostgreSQL cardinality
+// for aggregate/scalar SELECTs so client code that expects the mandatory
+// aggregate row cannot receive a structurally impossible zero-row response.
+const aggregateFallback = local(`
+SELECT count(*) AS count
+FROM pg_catalog.pg_stat_progress_vacuum
+`);
+assert.ok(aggregateFallback);
+assert.deepEqual(aggregateFallback.fields.map((f) => f.name), ['count']);
+assert.deepEqual(aggregateFallback.rows, [[0]]);
+
+const scalarSystemFallback = local(`
+SELECT pg_catalog.some_future_pgadmin_probe() AS probe
+`);
+assert.ok(scalarSystemFallback);
+assert.deepEqual(scalarSystemFallback.fields.map((f) => f.name), ['probe']);
+assert.equal(scalarSystemFallback.rows.length, 1);
+assert.equal(scalarSystemFallback.rows[0][0], null);
+
 // Server/database tree query used immediately after a successful connection.
 expectFields(`
 SELECT db.oid as did, db.datname as name, ta.spcname as spcname, db.datallowconn,

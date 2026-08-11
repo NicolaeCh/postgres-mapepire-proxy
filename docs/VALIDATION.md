@@ -21,7 +21,7 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.6 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.7 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
@@ -75,19 +75,31 @@ diagnostics described above. A native 0.1.5 image build and live pgAdmin
 connection remain deployment acceptance tests.
 
 
-## 0.1.6 pgAdmin 9.17 contract validation
+## 0.1.7 pgAdmin 9.17 connection and wire-contract validation
 
-Version 0.1.6 was audited against pgAdmin 4 REL-9_17 connection code and SQL templates. The implementation was type-checked with TypeScript 5.8 in the delivery workspace using compatibility stubs for external packages, then the compiled compatibility contract script was executed successfully. The contract covers:
+Version 0.1.7 was audited against the pgAdmin 4 REL-9_17 psycopg3 connection implementation, server connect handler, recovery template, replication-type helper/template, and PostgreSQL 14 frontend/backend protocol documentation.
 
-- the initialization `SET` / `set_config` statements;
-- `SELECT version()` with the expected `version` column;
+The compiled compatibility tests cover:
+
+- the initialization `SET` / `set_config` batch;
+- `SELECT version()` with a `version` column and at least one row;
 - current-database metadata from `pg_catalog.pg_database`;
 - `pg_catalog.pg_stat_gssapi`;
 - current-role capability fields including `can_signal_backend`;
 - pgAdmin's recovery/replay-state query;
+- the exact REL-9_17 `replication_type.sql` query, asserting exactly one row and `type=NULL`;
 - database-tree metadata projection;
-- local PostgreSQL scalar/session functions;
-- `SYSIBM.SYSDUMMY1` injection for scalar application `SELECT` statements that are legitimately forwarded to Db2;
-- quarantine of an unknown PostgreSQL system relation so it cannot reach Mapepire.
+- quarantine of unknown PostgreSQL system relations;
+- PostgreSQL startup ordering: `AuthenticationOk` -> `ParameterStatus` -> `BackendKeyData` -> `ReadyForQuery`;
+- psycopg3 Extended Query ordering: ParseComplete -> BindComplete -> RowDescription at portal Describe -> DataRow(s)/CommandComplete at Execute -> ReadyForQuery at Sync;
+- no duplicate RowDescription during Execute and matching RowDescription/DataRow column counts.
 
-Both `Containerfile` and `Dockerfile` execute `node scripts/verify-pgadmin-compat.mjs` after `npm run build`; a failed compatibility contract therefore fails image construction. The delivery workspace did not have a live pgAdmin + IBM i/Mapepire endpoint, so a native 0.1.6 image build and live pgAdmin 9.17 connection remain deployment acceptance tests.
+Both `Containerfile` and `Dockerfile` execute:
+
+```text
+node scripts/verify-pgadmin-compat.mjs
+node scripts/verify-pgadmin-wire.mjs
+node scripts/verify-startup-wire.mjs
+```
+
+after `npm run build`, so a regression prevents image creation. The delivery workspace does not have a live pgAdmin + IBM i/Mapepire endpoint; the target PPC64LE/AMD64 build and a real pgAdmin connection remain deployment acceptance tests.

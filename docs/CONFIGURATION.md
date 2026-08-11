@@ -9,6 +9,7 @@ All runtime configuration is supplied through `.env`. The repository includes `.
 | `PG_LISTEN_HOST` | `0.0.0.0` | Listener address. |
 | `PG_LISTEN_PORT` | `5432` | PostgreSQL wire-protocol port. |
 | `PG_SERVER_VERSION` | `14.0` | PostgreSQL compatibility version exposed in wire `ParameterStatus`. Keep this value numeric. The pgAdmin 9.17 compatibility profile is validated against PostgreSQL 14 semantics to minimize version-specific catalog probes. |
+| `PG_PROTOCOL_TRACE` | `false` | Log PostgreSQL frontend message types (`Query`, `Parse`, `Bind`, `Describe`, `Execute`, `Sync`, etc.) plus application/database metadata. It does **not** log SQL text. Enable temporarily for protocol diagnostics. |
 | `PG_MAX_CLIENTS` | `100` | Maximum simultaneous client sockets. |
 | `PG_CLIENT_IDLE_TIMEOUT_MS` | `1800000` | Idle socket timeout. |
 | `PG_MAX_FRONTEND_MESSAGE_BYTES` | `16777216` | Maximum buffered size of a single post-authentication PG frontend frame. |
@@ -95,3 +96,7 @@ One `SQLJob` is leased to one PostgreSQL session for that session's lifetime. It
 ### Failed-query diagnostics
 
 `SQL_LOG_FAILED_TEXT=false` controls whether the original SQL text is included in warning logs when a backend command fails. Enable it temporarily when diagnosing a new PostgreSQL-client compatibility query. Leave it disabled in normal production environments if SQL literals may contain sensitive data.
+
+### PostgreSQL protocol diagnostics
+
+`PG_PROTOCOL_TRACE=true` logs only frontend protocol message **types** and client metadata, not SQL text. It is useful when a client-side error occurs without a backend SQL warning. `SQL_LOG_FAILED_TEXT=true` is a separate, more sensitive diagnostic option that adds failed SQL text to warning logs and should normally remain disabled.

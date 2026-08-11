@@ -5,13 +5,15 @@ FROM ${NODE_IMAGE} AS build
 WORKDIR /app
 
 COPY package*.json ./
-COPY scripts/verify-runtime-modules.mjs scripts/verify-pgadmin-compat.mjs ./scripts/
+COPY scripts/verify-runtime-modules.mjs scripts/verify-pgadmin-compat.mjs scripts/verify-pgadmin-wire.mjs scripts/verify-startup-wire.mjs ./scripts/
 RUN npm install --ignore-scripts \
  && node scripts/verify-runtime-modules.mjs
 COPY tsconfig.json eslint.config.js .prettierrc.json ./
 COPY src ./src
 RUN npm run build \
- && node scripts/verify-pgadmin-compat.mjs
+ && node scripts/verify-pgadmin-compat.mjs \
+ && node scripts/verify-pgadmin-wire.mjs \
+ && node scripts/verify-startup-wire.mjs
 RUN npm prune --omit=dev
 
 FROM ${NODE_IMAGE} AS runtime

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.7 - 2026-08-11
+
+- Audited the complete pgAdmin 4 REL-9_17 synchronous connect path, including the post-connect `replication_type.sql` helper.
+- Fixed pgAdmin `list index out of range`: pgAdmin unconditionally reads `res['rows'][0]['type']`; the proxy now returns the required single `type=NULL` row for a normal non-PostgreSQL-replication backend instead of an empty synthetic result.
+- Hardened the PostgreSQL-system quarantine so scalar SELECTs without a top-level FROM and aggregate SELECTs without GROUP BY/HAVING preserve PostgreSQL one-row cardinality instead of returning a structurally incorrect zero-row result.
+- Added a PostgreSQL startup-handshake adapter that emits ParameterStatus values and BackendKeyData, and delays ReadyForQuery until the Mapepire SQLJob and custom wire parser are attached.
+- Fixed Extended Query Protocol semantics: portal Describe now returns RowDescription for row-producing queries and Execute no longer emits a duplicate RowDescription.
+- Added read-only portal materialization for Db2 result metadata because Mapepire exposes column metadata only when executing the query.
+- Added `PG_PROTOCOL_TRACE` for message-type diagnostics without logging SQL text.
+- Added build-time pgAdmin wire-contract and startup-handshake tests in addition to the SQL compatibility contract.
+- The pgAdmin compatibility build test now includes the exact REL-9_17 replication-type query and asserts one DataRow whose `type` value is PostgreSQL NULL.
+
 ## 0.1.6 - 2026-08-11
 
 - Replaced incremental pgAdmin exceptions with a Virtual PostgreSQL System Layer.

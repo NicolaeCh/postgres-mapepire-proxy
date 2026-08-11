@@ -2,7 +2,7 @@
 
 ## Scope
 
-Version 0.1.6 treats pgAdmin compatibility as a protocol contract rather than as SQL dialect translation. PostgreSQL system catalogs and server-introspection functions describe PostgreSQL internals; most have no truthful one-to-one Db2 for i equivalent. They therefore must not be sent to IBM i.
+Version 0.1.7 treats pgAdmin compatibility as a protocol contract rather than as SQL dialect translation. PostgreSQL system catalogs and server-introspection functions describe PostgreSQL internals; most have no truthful one-to-one Db2 for i equivalent. They therefore must not be sent to IBM i.
 
 The proxy exposes PostgreSQL compatibility level **14.0** by default. pgAdmin 4 9.17 supports PostgreSQL 14 through 18, so 14 is intentionally the lowest currently supported level and minimizes version-dependent PostgreSQL catalog surface.
 
@@ -22,8 +22,9 @@ The pgAdmin psycopg3 driver performs these operations during `_initialize()`:
 6. For server versions >= 12, `pg_catalog.pg_stat_gssapi` for the current backend PID.
 7. Current role/capability lookup from `pg_catalog.pg_roles`, including `can_signal_backend`.
 8. After connection, the server tree executes `check_recovery.sql` using `pg_catalog.pg_user`, `pg_is_in_recovery()` and `pg_is_wal_replay_paused()`. Failure of this query causes pgAdmin to mark the server disconnected.
-9. Database tree loading queries `pg_database`, `pg_tablespace` and `pg_shdescription`.
-10. Statistics/dashboard pages may immediately use PostgreSQL-only objects such as `pg_stat_activity`, `pg_stat_replication`, locks, replication slots and settings.
+9. pgAdmin calls `get_replication_type()`, which executes `templates/servers/sql/default/replication_type.sql` and **unconditionally indexes the first returned row**. The template returns `pgd`, `log`, or `NULL`; therefore the proxy must return one row even when no PostgreSQL replication feature exists.
+10. Database tree loading queries `pg_database`, `pg_tablespace` and `pg_shdescription`.
+11. Statistics/dashboard pages may immediately use PostgreSQL-only objects such as `pg_stat_activity`, `pg_stat_replication`, locks, replication slots and settings.
 
 Primary references:
 
@@ -31,6 +32,9 @@ Primary references:
 - pgAdmin REL-9_17 recovery template: https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/browser/server_groups/servers/templates/connect/sql/default/check_recovery.sql
 - pgAdmin REL-9_17 database nodes template: https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/browser/server_groups/servers/databases/templates/databases/sql/default/nodes.sql
 - pgAdmin REL-9_17 server statistics template: https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/browser/server_groups/servers/templates/servers/sql/default/stats.sql
+- pgAdmin REL-9_17 server helper (`get_replication_type`): https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/browser/server_groups/servers/utils.py
+- pgAdmin REL-9_17 replication-type SQL: https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/browser/server_groups/servers/templates/servers/sql/default/replication_type.sql
+- PostgreSQL 14 frontend/backend message flow: https://www.postgresql.org/docs/14/protocol-flow.html
 
 ## Virtual PostgreSQL System Layer
 
@@ -47,6 +51,7 @@ Connection-critical queries receive deterministic PostgreSQL-shaped rows. Exampl
 - `pg_database`: one logical proxy database.
 - `pg_stat_gssapi`: `gss_authenticated=false`, `encrypted=false`.
 - `pg_roles`: proxy-facing PostgreSQL role capabilities only; this does **not** change IBM i authority.
+- pgAdmin replication type: exactly one `type` column and one row containing `NULL`; IBM i has neither BDR nor PostgreSQL logical replication slots.
 - recovery/WAL functions: `false` because PostgreSQL WAL recovery has no IBM i meaning in this proxy.
 - `current_schema()`: the session's IBM i current schema.
 - `pg_show_all_settings()` / `pg_settings`: a small virtual settings set.
@@ -57,11 +62,25 @@ PostgreSQL runtime/monitoring objects with no Db2-for-i semantic equivalent retu
 
 No fabricated IBM i operational metric is reported as though it were a PostgreSQL metric.
 
+For PostgreSQL-system queries whose SQL semantics guarantee a row (for example a scalar SELECT without a top-level FROM or an aggregate SELECT without GROUP BY/HAVING), the quarantine preserves that one-row cardinality. Unknown values remain `NULL` and count-like aggregate fields are zero. This avoids client-side failures caused purely by an impossible result shape.
+
 ### 3. System-query firewall
 
 After the exact handlers, any remaining `pg_catalog.*` or `pg_*` system construct is quarantined locally. It cannot be translated into an accidental IBM i library/table name.
 
 The only intentionally translated catalog relations are the small compatibility subset already implemented by the proxy (`pg_namespace`, `pg_class`, and the synthetic `pg_type` path).
+
+## PostgreSQL wire-protocol contract
+
+pgAdmin 9.17 uses psycopg3. Correct SQL shape is not sufficient: the frontend/backend message sequence must also be PostgreSQL-compliant. Version 0.1.7 therefore enforces these startup and Extended Query invariants:
+
+- after `AuthenticationOk`, the backend sends the initial `ParameterStatus` messages, `BackendKeyData`, and only then `ReadyForQuery`;
+- `ReadyForQuery` is delayed until the Mapepire job is leased and the proxy's custom protocol parser is attached;
+- portal `Describe` returns `RowDescription` for a row-producing query or `NoData` for a non-row-producing command;
+- `Execute` sends row data and `CommandComplete` but does **not** send another `RowDescription`;
+- every synthetic `DataRow` is validated to contain exactly the number of values announced by `RowDescription`.
+
+Mapepire does not expose a prepare-only result-metadata API. For a Db2 read query described through a PostgreSQL portal, the proxy executes/materializes that **read-only** query once at Describe time, retains its data/metadata, and serves it during Execute without executing it twice. Writes are never run during Describe.
 
 ## PostgreSQL SELECT-without-FROM handling
 
@@ -81,13 +100,15 @@ FROM SYSIBM.SYSDUMMY1
 
 ## Build-time contract test
 
-The container build runs:
+The container build runs all three compiled-code contract tests:
 
 ```text
 node scripts/verify-pgadmin-compat.mjs
+node scripts/verify-pgadmin-wire.mjs
+node scripts/verify-startup-wire.mjs
 ```
 
-against the compiled JavaScript. The image build fails if the proxy no longer satisfies the pgAdmin 9.17 initialization/recovery contract or if an unknown PostgreSQL system view would fall through to Db2.
+The image build fails if the SQL compatibility contract, the psycopg3 Extended Query sequence, or the PostgreSQL startup handshake regresses. The SQL contract includes the exact pgAdmin 9.17 replication-type template and requires one `type=NULL` row.
 
 ## Important limitation
 

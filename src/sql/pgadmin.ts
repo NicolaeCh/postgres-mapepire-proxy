@@ -8,6 +8,7 @@ export interface PgAdminCompatContext {
   currentSchema: string;
   serverPort?: number;
   systemIdentifier?: string;
+  backendPid?: number;
 }
 
 const field = (name: string, typeOid: number, typeSize: number): FieldDescription => ({
@@ -96,7 +97,7 @@ export function pgAdminCompatibilityQuery(
   if (replayPaused) return selectOne(replayPaused[1] ?? 'pg_is_wal_replay_paused', false, OID.bool, 1);
 
   const backendPid = s.match(/^select\s+(?:pg_catalog\.)?pg_backend_pid\s*\(\s*\)(?:\s+as\s+([a-z_][a-z0-9_$]*))?$/i);
-  if (backendPid) return selectOne(backendPid[1] ?? 'pg_backend_pid', process.pid, OID.int4, 4);
+  if (backendPid) return selectOne(backendPid[1] ?? 'pg_backend_pid', context.backendPid ?? process.pid, OID.int4, 4);
 
   if (/^select\s+(?:current_user|session_user)(?:\s+as\s+([a-z_][a-z0-9_$]*))?$/i.test(s)) {
     const alias = projectedAlias(s) ?? (s.toLowerCase().includes('session_user') ? 'session_user' : 'current_user');
@@ -108,6 +109,23 @@ export function pgAdminCompatibilityQuery(
   // proxy-generated identifier supplied by the session context.
   if (/\binet_server_addr\s*\(|\binet_server_port\s*\(|\bpg_control_system\s*\(/i.test(s)) {
     return syntheticServerIdentity(s, context);
+  }
+
+  // pgAdmin server connection completion calls its replication_type.sql
+  // template and then unconditionally indexes rows[0]['type']. Returning an
+  // empty virtual result therefore causes pgAdmin itself to raise Python
+  // IndexError ("list index out of range"). The PostgreSQL template returns
+  // 'pgd' when BDR is installed, 'log' when logical replication slots exist,
+  // otherwise NULL. Neither PostgreSQL extension has an IBM i analogue, so the
+  // faithful proxy result is one row with a NULL type.
+  if (/\b(?:pg_catalog\.)?pg_extension\b/i.test(s)
+      && /\b(?:pg_catalog\.)?pg_replication_slots\b/i.test(s)
+      && /\bend\s+as\s+type\b/i.test(s)) {
+    return {
+      fields: [text('type')],
+      rows: [[null]],
+      tag: 'SELECT 1',
+    };
   }
 
   // pgAdmin's >= PostgreSQL 12 initialization query. It only needs to know
@@ -348,17 +366,48 @@ function isVirtualMonitoringSql(sql: string): boolean {
 
 function emptyProjectedResult(sql: string, fallbackFields: FieldDescription[] = [text('_proxy')]): SyntheticResult {
   const names = projectedNames(sql);
-  if (names.length) {
-    const fields = names.map((name) => {
-      if (/^(?:gss_authenticated|encrypted|ssl|granted|fastpath|is_|has_|can_)/i.test(name)) return bool(name);
-      if (/^(?:pid|server_port|bits|backend_xid|backend_xmin)$/i.test(name)) return int4(name);
-      if (/^(?:count|total|transactions|commits|rollbacks)$/i.test(name)) return int8(name);
-      if (name === 'chart_data') return json(name);
-      return text(name);
-    });
-    return { fields, rows: [], tag: 'SELECT 0' };
+  const fields = names.length
+    ? names.map(projectedField)
+    : fallbackFields;
+
+  // PostgreSQL SELECTs without a top-level FROM always have one outer row, and
+  // an aggregate SELECT without GROUP BY/HAVING also has one row even if the
+  // input relation is empty. A generic zero-row quarantine for those shapes is
+  // observably wrong and can crash clients that legitimately read rows[0]
+  // (pgAdmin's replication-type helper is one concrete example). Preserve the
+  // cardinality contract while keeping unknown values conservative/NULL.
+  if (names.length && virtualSelectGuaranteesOneRow(sql)) {
+    const row = fields.map((desc) => defaultVirtualScalarValue(desc));
+    return { fields, rows: [row], tag: 'SELECT 1' };
   }
-  return { fields: fallbackFields, rows: [], tag: 'SELECT 0' };
+
+  return { fields, rows: [], tag: 'SELECT 0' };
+}
+
+function projectedField(name: string): FieldDescription {
+  if (/^(?:gss_authenticated|encrypted|ssl|granted|fastpath|is_|has_|can_)/i.test(name)) return bool(name);
+  if (/^(?:pid|server_port|bits|backend_xid|backend_xmin)$/i.test(name)) return int4(name);
+  if (/^(?:count|total|transactions|commits|rollbacks)$/i.test(name)) return int8(name);
+  if (name === 'chart_data') return json(name);
+  return text(name);
+}
+
+function defaultVirtualScalarValue(desc: FieldDescription): unknown {
+  if (desc.typeOid === OID.bool) return false;
+  if (desc.typeOid === OID.int8 && /^(?:count|total|transactions|commits|rollbacks)$/i.test(desc.name)) return 0;
+  return null;
+}
+
+function virtualSelectGuaranteesOneRow(sql: string): boolean {
+  if (!/^\s*select\b/i.test(sql)) return false;
+  if (!hasTopLevelWord(sql, 'from')) return true;
+  if (hasTopLevelWord(sql, 'group') || hasTopLevelWord(sql, 'having')) return false;
+
+  const projection = outerSelectProjection(sql) ?? '';
+  // Window aggregates retain input cardinality, so an empty relation still
+  // yields zero rows. Do not apply ordinary aggregate cardinality to them.
+  if (/\bover\s*\(/i.test(projection)) return false;
+  return /\b(?:count|sum|avg|min|max|bool_and|bool_or|array_agg|json_agg|jsonb_agg)\s*\(/i.test(projection);
 }
 
 function projectedNames(sql: string): string[] {
@@ -565,7 +614,7 @@ function evaluateBuiltinExpression(
     return { field: int4(alias ?? 'inet_server_port'), value: context.serverPort ?? 5432 };
   }
   if (/^version\s*\(\s*\)$/i.test(core)) {
-    return { field: text(alias ?? 'version'), value: 'PostgreSQL 14.0 compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.6)' };
+    return { field: text(alias ?? 'version'), value: 'PostgreSQL 14.0 compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.7)' };
   }
   const setting = core.match(/^(?:pg_catalog\.)?current_setting\s*\(\s*'([^']+)'(?:\s*,\s*(?:true|false))?\s*\)$/i);
   if (setting) {

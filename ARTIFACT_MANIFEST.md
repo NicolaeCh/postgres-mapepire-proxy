@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.6 reference implementation**
+Version: **0.1.7 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.6 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.6.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.7.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 
@@ -35,6 +35,6 @@ See `docs/VALIDATION.md`. This build environment could not resolve npm packages 
 
 `src/sql/parser-sdk.ts` is the ESM/CommonJS interop boundary for `node-sql-parser` 5.4.0. `scripts/verify-runtime-modules.mjs` now validates all runtime package boundaries used by the service: Mapepire, node-sql-parser, dotenv/config and pg-gateway. See `docs/BUILD_FIX_0.1.4.md`.
 
-### 0.1.6 pgAdmin compatibility hardening
+### 0.1.7 pgAdmin compatibility hardening
 
-`src/sql/pgadmin.ts` now implements a Virtual PostgreSQL System Layer audited against pgAdmin 4 REL-9_17. `scripts/verify-pgadmin-compat.mjs` verifies the compiled initialization/recovery contract during image build. See `docs/PGADMIN_COMPATIBILITY.md` and `docs/BUILD_FIX_0.1.6.md`.
+`src/sql/pgadmin.ts` implements a Virtual PostgreSQL System Layer audited against pgAdmin 4 REL-9_17, including the connection-critical one-row replication-type response. The PostgreSQL startup adapter now emits ParameterStatus + BackendKeyData before ReadyForQuery, and the custom Extended Query engine returns RowDescription at portal Describe rather than Execute. `verify-pgadmin-compat.mjs`, `verify-pgadmin-wire.mjs`, and `verify-startup-wire.mjs` verify these compiled contracts during every image build. See `docs/PGADMIN_COMPATIBILITY.md` and `docs/BUILD_FIX_0.1.7.md`.

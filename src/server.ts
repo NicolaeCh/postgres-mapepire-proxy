@@ -1,10 +1,11 @@
 import net from 'node:net';
 import { timingSafeEqual } from 'node:crypto';
-import { PostgresConnection, hashMd5Password } from 'pg-gateway';
+import { hashMd5Password } from 'pg-gateway';
 import { config } from './config.js';
 import { Logger } from './logger.js';
 import { SessionJobPool } from './mapepire/session-pool.js';
 import { ProxySession } from './proxy/session.js';
+import { ProxyGatewayConnection } from './postgres/gateway-connection.js';
 
 export function createPgServer(pool: SessionJobPool, logger: Logger) {
   let clients = 0;
@@ -22,7 +23,7 @@ export function createPgServer(pool: SessionJobPool, logger: Logger) {
     let session: ProxySession | undefined;
     let detachedProtocolSocket: net.Socket | undefined;
     let finalized = false;
-    const connection = new PostgresConnection(socket, {
+    const connection = new ProxyGatewayConnection(socket, {
       serverVersion: config.pg.serverVersion,
       authMode: config.pg.authMode,
       tls: config.pg.tls,
@@ -44,15 +45,21 @@ export function createPgServer(pool: SessionJobPool, logger: Logger) {
           user: parameters.user,
           database: parameters.database,
           applicationName: parameters.application_name,
+          backendPid: connection.backendPid,
         }, logger);
         try {
           await session.initialize();
-          if (socket.destroyed) {
+          if (connection.socket.destroyed) {
             await session.close();
             session = undefined;
             return;
           }
           sessions.add(session);
+          logger.info('PostgreSQL client session authenticated', {
+            user: parameters.user,
+            database: parameters.database,
+            applicationName: parameters.application_name,
+          });
 
           // pg-gateway 0.2.x is used for PostgreSQL startup/TLS/authentication.
           // Once authentication succeeds, detach its parser and let our own
@@ -86,7 +93,7 @@ export function createPgServer(pool: SessionJobPool, logger: Logger) {
           }
         } catch (error) {
           connection.sendError({ severity: 'FATAL', code: '08001', message: `IBM i backend unavailable: ${String(error)}` });
-          socket.destroy();
+          connection.socket.destroy();
         }
       },
     });

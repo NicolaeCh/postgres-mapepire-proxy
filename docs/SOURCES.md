@@ -47,3 +47,13 @@ Decision: 5.4.0. It is used as a secondary classifier, not as a complete Postgre
 - https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/browser/server_groups/servers/databases/templates/databases/sql/default/nodes.sql
 - https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/browser/server_groups/servers/templates/servers/sql/default/stats.sql
 - https://www.ibm.com/docs/en/i/7.4.0?topic=views-sysdummy1
+
+## pgAdmin 9.17 / PostgreSQL protocol references added for 0.1.7
+
+- pgAdmin REL-9_17 psycopg3 connection: https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/utils/driver/psycopg3/connection.py
+- pgAdmin REL-9_17 server connect path: https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/browser/server_groups/servers/__init__.py
+- pgAdmin REL-9_17 server utilities (`get_replication_type`): https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/browser/server_groups/servers/utils.py
+- pgAdmin REL-9_17 replication type SQL: https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/browser/server_groups/servers/templates/servers/sql/default/replication_type.sql
+- PostgreSQL 14 protocol message flow: https://www.postgresql.org/docs/14/protocol-flow.html
+- PostgreSQL 14 protocol message formats: https://www.postgresql.org/docs/14/protocol-message-formats.html
+- pg-gateway 0.2.4 connection implementation: https://github.com/supabase-community/pg-gateway/blob/v0.2.4/packages/pg-gateway/src/connection.ts

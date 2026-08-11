@@ -4,15 +4,15 @@ This is intentionally separate from the technical specification.
 
 ## pgAdmin 9.17 compatibility setting
 
-For release 0.1.6, set the following explicitly in `.env`:
+For release 0.1.7, set the following explicitly in `.env`:
 
 ```dotenv
 PG_SERVER_VERSION=14.0
 ```
 
-Do not carry forward a decorated value such as `16.4 (...)` from an older `.env`. pgAdmin branches its startup/catalog behavior based on the PostgreSQL server version advertised in protocol `ParameterStatus`; the 0.1.6 compatibility contract is validated with the numeric `14.0` profile.
+Do not carry forward a decorated value such as `16.4 (...)` from an older `.env`. pgAdmin branches its startup/catalog behavior based on the PostgreSQL server version advertised in protocol `ParameterStatus`; the 0.1.7 compatibility contract is validated with the numeric `14.0` profile.
 
-If pgAdmin still encounters an unsupported query, temporarily set `SQL_LOG_FAILED_TEXT=true`, reproduce the connection once, capture the failing SQL, and then restore the option to `false` because SQL literals may contain sensitive data.
+For protocol-level diagnostics, temporarily set `PG_PROTOCOL_TRACE=true`. This logs frontend message types and connection metadata but not SQL text. If pgAdmin encounters a Db2/SQL compatibility failure, `SQL_LOG_FAILED_TEXT=true` can additionally log the failed SQL; restore it to `false` immediately after diagnosis because SQL literals may contain sensitive data.
 
 ## 1. Prerequisites
 
@@ -127,19 +127,19 @@ The compose definition mounts `./certs` read-only at `/app/certs`.
 
 ```bash
 podman pull node:24-bookworm-slim
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.6 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.7 .
 ```
 
 ### Docker
 
 ```bash
 docker pull node:24-bookworm-slim
-docker build -t postgres-mapepire-proxy:0.1.6 .
+docker build -t postgres-mapepire-proxy:0.1.7 .
 ```
 
 The `Dockerfile` accepts `--build-arg NODE_IMAGE=...` if an exact tested tag/digest must be pinned. Keep the image on Node 24 LTS and verify that the chosen manifest contains both `linux/amd64` and `linux/ppc64le`.
 
-Before TypeScript compilation, a successful 0.1.6 build must print all four runtime dependency checks:
+Before TypeScript compilation, a successful 0.1.7 build must print all four runtime dependency checks:
 
 ```text
 Mapepire runtime module check OK
@@ -149,6 +149,16 @@ pg-gateway runtime module check OK
 ```
 
 If any of these checks fails, do not deploy the image; the installed dependency entry point is incompatible with the proxy runtime.
+
+After TypeScript compilation the build must also print:
+
+```text
+pgAdmin 9.17 compatibility contract check OK
+pgAdmin psycopg3 Extended Query wire contract check OK
+PostgreSQL startup handshake contract check OK
+```
+
+These tests specifically guard the connection sequence that pgAdmin uses, including the mandatory one-row replication-type result and protocol Describe/Execute ordering.
 
 ## 6. Run
 
@@ -162,7 +172,7 @@ podman run -d \
   -p 8080:8080 \
   -v ./certs:/app/certs:ro,Z \
   --restart=unless-stopped \
-  postgres-mapepire-proxy:0.1.6
+  postgres-mapepire-proxy:0.1.7
 ```
 
 ### Compose
@@ -178,7 +188,7 @@ docker compose up -d
 ### Docker buildx
 
 ```bash
-IMAGE=registry.example.com/db/postgres-mapepire-proxy:0.1.6 \
+IMAGE=registry.example.com/db/postgres-mapepire-proxy:0.1.7 \
   ./scripts/build-multiarch-docker.sh
 ```
 
@@ -190,8 +200,8 @@ On builders capable of producing both target architectures:
 
 ```bash
 ./scripts/build-multiarch-podman.sh
-podman manifest push --all postgres-mapepire-proxy:0.1.6 \
-  docker://registry.example.com/db/postgres-mapepire-proxy:0.1.6
+podman manifest push --all postgres-mapepire-proxy:0.1.7 \
+  docker://registry.example.com/db/postgres-mapepire-proxy:0.1.7
 ```
 
 For production PPC64LE it is often preferable to build the PPC64LE image natively on IBM Power rather than through QEMU emulation.

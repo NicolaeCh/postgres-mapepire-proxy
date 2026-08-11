@@ -98,9 +98,12 @@ The initial metadata-by-metadata approach was replaced by a **Virtual PostgreSQL
 5. Unknown PostgreSQL-system SQL cannot fall through to Db2.
 6. Scalar application `SELECT` without a top-level `FROM` receives `FROM SYSIBM.SYSDUMMY1` before Db2 execution.
 7. `PG_SERVER_VERSION=14.0` is the validated pgAdmin 9.17 compatibility profile.
-8. `scripts/verify-pgadmin-compat.mjs` runs after TypeScript compilation during the container build and must pass before an image is produced.
+8. The exact pgAdmin `replication_type.sql` request returns one `type=NULL` row, matching the upstream template's no-replication case and pgAdmin's unconditional `rows[0]` access.
+9. PostgreSQL startup is completed only after Mapepire/session attachment and includes ParameterStatus + BackendKeyData before ReadyForQuery.
+10. Extended Query portal Describe/Execute semantics follow PostgreSQL: RowDescription is emitted by Describe for rowsets and is not duplicated by Execute.
+11. `verify-pgadmin-compat.mjs`, `verify-pgadmin-wire.mjs`, and `verify-startup-wire.mjs` run after TypeScript compilation during the container build and must pass before an image is produced.
 
-Acceptance criteria: the exact pgAdmin 9.17 initialization, GSS, role-capability and recovery probes used by the contract test are answered locally and an unknown PostgreSQL system relation is demonstrably prevented from reaching Mapepire.
+Acceptance criteria: the exact pgAdmin 9.17 initialization, GSS, role-capability, recovery and replication-type probes are answered with the required row shapes; psycopg3 Extended Query framing is protocol-correct; startup publishes BackendKeyData and does not become ReadyForQuery before the Mapepire-backed session is ready; and unknown PostgreSQL system relations are prevented from reaching Mapepire.
 
 ## Phase 9 — broader client interoperability — production expansion
 
@@ -108,10 +111,10 @@ Before declaring support for additional clients/ORM versions:
 
 1. capture startup and metadata SQL from the exact DBeaver, JDBC, Npgsql or ORM versions that will be supported;
 2. add deterministic metadata projections where clients require richer `pg_attribute`, constraints, index or function metadata;
-3. implement a prepare/describe metadata strategy if a target driver requires `RowDescription` strictly at Describe time;
+3. extend the current read-only portal materialization strategy if a target driver requires statement-level Describe metadata before Bind;
 4. implement `PortalSuspended`/resumable Execute if a target driver depends on extended-protocol cursor paging;
 5. add `CancelRequest`/statement-timeout support if/when a safe running-query cancellation mechanism is available through the selected Mapepire client/backend path;
 6. add TLS/mTLS policy and external secret injection appropriate to the deployment platform;
 7. run load testing sized to IBM i job limits and the application's connection-pool behavior.
 
-These are broader compatibility-hardening items, not prerequisites for the pgAdmin 9.17 connection contract implemented in 0.1.6.
+These are broader compatibility-hardening items, not prerequisites for the pgAdmin 9.17 connection contract implemented in 0.1.7.
