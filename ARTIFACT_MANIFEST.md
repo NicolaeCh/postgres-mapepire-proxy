@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.4 reference implementation**
+Version: **0.1.5 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.4 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.4.md`; historical source patches included in the tree plus the separately delivered 0.1.3-to-0.1.4 patch provide traceability.
+- Build-fix notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.5.md`; source-to-source patches are delivered separately for traceability.
 
 ## Validation scope
 
@@ -29,8 +29,12 @@ See `docs/VALIDATION.md`. This build environment could not resolve npm packages 
 
 ### 0.1.3 Mapepire runtime compatibility correction
 
-`src/mapepire/sdk.ts` is the ESM/CommonJS interop boundary for `@ibm/mapepire-js` 0.6.1. Version 0.1.4 supersedes the former Mapepire-only build check with the consolidated `scripts/verify-runtime-modules.mjs`. See `docs/BUILD_FIX_0.1.3.md` and `docs/BUILD_FIX_0.1.4.md`.
+`src/mapepire/sdk.ts` is the ESM/CommonJS interop boundary for `@ibm/mapepire-js` 0.6.1. Version 0.1.4 superseded the former Mapepire-only build check with the consolidated `scripts/verify-runtime-modules.mjs`. See `docs/BUILD_FIX_0.1.3.md` and `docs/BUILD_FIX_0.1.4.md`.
 
 ### 0.1.4 runtime dependency compatibility correction
 
-`src/sql/parser-sdk.ts` is the ESM/CommonJS interop boundary for `node-sql-parser` 5.4.0. `scripts/verify-runtime-modules.mjs` now validates all runtime package boundaries used by the service: Mapepire, node-sql-parser, dotenv/config and pg-gateway. See `docs/BUILD_FIX_0.1.4.md`.
+`src/sql/parser-sdk.ts` is the ESM/CommonJS interop boundary for `node-sql-parser` 5.4.0. `scripts/verify-runtime-modules.mjs` validates all runtime package boundaries used by the service: Mapepire, node-sql-parser, dotenv/config and pg-gateway. See `docs/BUILD_FIX_0.1.4.md`.
+
+### 0.1.5 pgAdmin startup compatibility correction
+
+`src/sql/pgadmin.ts` intercepts PostgreSQL-only pgAdmin startup metadata/session probes before SQL translation so they never reach Db2 for i. It covers `pg_database`, role/recovery probes, tablespace metadata, `set_config`, `current_setting`, locale checks and simple no-FROM scalar probes. Harmless pgAdmin initialization batches are synthetic-only; general multi-statement execution remains disabled by default. See `docs/BUILD_FIX_0.1.5.md`.

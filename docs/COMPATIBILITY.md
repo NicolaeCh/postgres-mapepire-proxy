@@ -55,3 +55,7 @@ PostgreSQL OID 18 (`char`) is an internal one-byte PostgreSQL type. SQL `CHAR(n)
 ## Protocol framing
 
 After pg-gateway completes startup/TLS/authentication, the proxy detaches the authenticated socket. Its parser buffers incomplete frontend frames and processes multiple coalesced frames in order. `PG_MAX_FRONTEND_MESSAGE_BYTES` limits the size of a single frontend frame/buffer.
+
+## pgAdmin startup compatibility
+
+Version 0.1.5 intercepts the PostgreSQL-only startup probes required to establish a pgAdmin session, including current-database metadata (`pg_database`), role capability probes, tablespace metadata, `set_config`, `current_setting`, and basic PostgreSQL no-FROM scalar selects. Harmless pgAdmin session-initialization batches are executed synthetically and are never forwarded to IBM i. General multi-statement SQL remains governed by `SQL_ALLOW_MULTI_STATEMENT`.

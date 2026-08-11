@@ -15,7 +15,7 @@ Client passwords are never forwarded to IBM i. This is a key architectural simpl
 
 ```mermaid
 flowchart LR
-  C[psql / DBeaver / ORM] -->|PostgreSQL v3 TCP 5432| G[pg-gateway]
+  C[psql / pgAdmin / DBeaver / ORM] -->|PostgreSQL v3 TCP 5432| G[pg-gateway]
   G --> S[Proxy session]
   S --> T[SQL translator + catalog compatibility]
   S -->|lease one job per PG session| P[Session-affinity Mapepire pool]
@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.4 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.4
+podman build -t postgres-mapepire-proxy:0.1.5 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.5
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced.
@@ -86,4 +86,4 @@ This is intentionally a **compatibility proxy**, not an implementation of the Po
 
 ## Important v0.1 limitations
 
-`SAVEPOINT`/`ROLLBACK TO SAVEPOINT`, PostgreSQL `CancelRequest`, binary result format and full PostgreSQL catalog emulation are not implemented. Common client `SET statement_timeout`/`lock_timeout` initialization commands are accepted as no-ops; they do not cancel IBM i work. See `docs/COMPATIBILITY.md`.
+pgAdmin startup is handled through a synthetic PostgreSQL catalog/session compatibility layer. Full pgAdmin object-browser equivalence is incremental and must be qualified per pgAdmin version. `SAVEPOINT`/`ROLLBACK TO SAVEPOINT`, PostgreSQL `CancelRequest`, binary result format and full PostgreSQL catalog emulation are not implemented. Common client `SET statement_timeout`/`lock_timeout` initialization commands are accepted as no-ops; they do not cancel IBM i work. See `docs/COMPATIBILITY.md`.

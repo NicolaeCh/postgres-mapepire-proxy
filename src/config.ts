@@ -88,7 +88,7 @@ export const config = {
   pg: {
     host: str('PG_LISTEN_HOST', '0.0.0.0'),
     port: num('PG_LISTEN_PORT', 5432),
-    serverVersion: str('PG_SERVER_VERSION', '16.4 (IBM i Mapepire Proxy 0.1.4)'),
+    serverVersion: str('PG_SERVER_VERSION', '16.4 (IBM i Mapepire Proxy 0.1.5)'),
     maxClients: num('PG_MAX_CLIENTS', 100),
     idleTimeoutMs: num('PG_CLIENT_IDLE_TIMEOUT_MS', 1_800_000),
     maxFrontendMessageBytes: num('PG_MAX_FRONTEND_MESSAGE_BYTES', 16 * 1024 * 1024),
@@ -125,6 +125,7 @@ export const config = {
     allowMultiStatement: bool('SQL_ALLOW_MULTI_STATEMENT', false),
     maxRows: num('SQL_MAX_ROWS', 0),
     logText: bool('SQL_LOG_TEXT', false),
+    logFailedText: bool('SQL_LOG_FAILED_TEXT', false),
   },
   health: {
     host: str('HEALTH_LISTEN_HOST', '0.0.0.0'),

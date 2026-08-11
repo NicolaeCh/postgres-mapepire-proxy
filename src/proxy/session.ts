@@ -14,6 +14,7 @@ import {
 import { syntheticCatalog } from '../sql/catalog.js';
 import { classify, isIdempotentRead, type StatementKind } from '../sql/classifier.js';
 import { environmentQuery, type SyntheticResult } from '../sql/environment.js';
+import { pgAdminCompatibilityQuery } from '../sql/pgadmin.js';
 import { reorderParameters, translateSql, type Translation } from '../sql/translator.js';
 
 interface PreparedStatement { sql: string; parameterOids: number[]; translation?: Translation; }
@@ -147,6 +148,35 @@ export class ProxySession {
 
   private async simpleQuery(sql: string): Promise<void> {
     if (!sql.trim()) { this.send(emptyQueryResponse()); this.send(readyForQuery(this.txStatus())); return; }
+
+    // pgAdmin may send several harmless PostgreSQL session-initialization
+    // statements in one Simple Query message. General multi-statement SQL
+    // remains disabled; this exception is allowed only when every statement is
+    // answered locally and none reaches IBM i.
+    const batch = splitSimpleStatements(sql);
+    if (batch.length > 1) {
+      const synthetic: SyntheticResult[] = [];
+      for (const statement of batch) {
+        const result = environmentQuery(statement, this.client.database ?? 'ibmi', this.currentSchema)
+          ?? pgAdminCompatibilityQuery(statement, {
+            database: this.client.database ?? 'ibmi',
+            user: this.client.user ?? config.pg.user ?? 'proxy',
+            currentSchema: this.currentSchema,
+          });
+        if (!result) {
+          // Fall through to the normal path, which will enforce
+          // SQL_ALLOW_MULTI_STATEMENT and reject unsafe/general batches.
+          await this.executeSql(sql, [], 0);
+          this.send(readyForQuery(this.txStatus()));
+          return;
+        }
+        synthetic.push(result);
+      }
+      for (const result of synthetic) this.sendSynthetic(result);
+      this.send(readyForQuery(this.txStatus()));
+      return;
+    }
+
     await this.executeSql(sql, [], 0);
     this.send(readyForQuery(this.txStatus()));
   }
@@ -196,6 +226,13 @@ export class ProxySession {
 
     const env = environmentQuery(sql, this.client.database ?? 'ibmi', this.currentSchema);
     if (env) { this.sendSynthetic(env); return; }
+
+    const pgAdmin = pgAdminCompatibilityQuery(sql, {
+      database: this.client.database ?? 'ibmi',
+      user: this.client.user ?? config.pg.user ?? 'proxy',
+      currentSchema: this.currentSchema,
+    });
+    if (pgAdmin) { this.sendSynthetic(pgAdmin); return; }
     if (rawKind === 'set') {
       throw sqlError('0A000', 'This PostgreSQL SET option is not supported by proxy v0.1');
     }
@@ -226,7 +263,9 @@ export class ProxySession {
       } else {
         try { await this.currentJob().execute('ROLLBACK'); } catch { /* best effort */ }
       }
-      throw mapDb2Error(error);
+      const mapped = mapDb2Error(error) as Error & { proxySql?: string };
+      mapped.proxySql = sql;
+      throw mapped;
     }
 
     if (result.has_results) this.sendMapepireRows(result, maxRows);
@@ -301,7 +340,14 @@ export class ProxySession {
 
   private async handleUnexpected(error: unknown): Promise<void> {
     const e = error as any;
-    this.logger.warn('PostgreSQL session command failed', { code: e?.sqlstate, error: String(e?.message ?? e) });
+    const fields: Record<string, unknown> = {
+      code: e?.sqlstate,
+      error: String(e?.message ?? e),
+      applicationName: this.client.applicationName,
+      database: this.client.database,
+    };
+    if (config.sql.logFailedText && e?.proxySql) fields.sql = String(e.proxySql);
+    this.logger.warn('PostgreSQL session command failed', fields);
     this.send(errorResponse({
       code: e?.sqlstate ?? 'XX000',
       message: e?.message ?? String(error),
@@ -317,6 +363,30 @@ export class ProxySession {
       await this.pool.release(job);
     }
   }
+}
+
+function splitSimpleStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let start = 0;
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < sql.length; i++) {
+    const c = sql[i];
+    if (c === "'" && !inDouble) {
+      if (inSingle && sql[i + 1] === "'") { i++; continue; }
+      inSingle = !inSingle;
+    } else if (c === '"' && !inSingle) {
+      if (inDouble && sql[i + 1] === '"') { i++; continue; }
+      inDouble = !inDouble;
+    } else if (c === ';' && !inSingle && !inDouble) {
+      const part = sql.slice(start, i).trim();
+      if (part) statements.push(part);
+      start = i + 1;
+    }
+  }
+  const tail = sql.slice(start).trim();
+  if (tail) statements.push(tail);
+  return statements;
 }
 
 function isSavepointCommand(sql: string): boolean {

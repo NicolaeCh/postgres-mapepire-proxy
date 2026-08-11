@@ -1,5 +1,16 @@
 # Changelog
 
+
+## 0.1.5 - 2026-08-11
+
+- Added pgAdmin startup compatibility interception for `pg_catalog.pg_database`.
+- Added synthetic handling for PostgreSQL no-FROM session probes such as `set_config()` and `current_setting()`.
+- Added lightweight `pg_user`, `pg_roles`, and `pg_tablespace` compatibility responses, including pgAdmin recovery/replay-state probes.
+- Added synthetic-only handling for pgAdmin's harmless multi-statement session initialization batch (`DateStyle`, `client_min_messages`, `bytea_output`, `client_encoding`).
+- Added locale/current-setting compatibility (`lc_ctype`, `lc_collate`, encoding/message/bytea settings).
+- Added opt-in `SQL_LOG_FAILED_TEXT` diagnostics for unsupported client probes.
+- Prevent PostgreSQL-only catalog/session queries from being forwarded to Db2 for i.
+
 ## 0.1.4 - 2026-08-11
 
 - Fixed Node 24 ESM startup failure with `node-sql-parser` 5.4.0 (`Parser` is not a named ESM runtime export).

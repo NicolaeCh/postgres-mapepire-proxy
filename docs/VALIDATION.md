@@ -21,7 +21,7 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.4 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.5 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
@@ -50,3 +50,26 @@ Version 0.1.3 removes the native ESM named runtime import of `SQLJob` from `@ibm
 ## 0.1.4 runtime dependency-format validation
 
 Version 0.1.4 adds a consolidated runtime-module smoke test executed immediately after `npm install` in both `Containerfile` and `Dockerfile`. It validates the actual installed package entry points rather than relying only on TypeScript declaration files. This specifically prevents CommonJS/ESM mismatches from reaching container startup.
+
+
+## 0.1.5 pgAdmin startup-compatibility validation
+
+The 0.1.5 compatibility layer was type-checked independently with TypeScript
+5.8 and exercised against representative pgAdmin startup probes. Targeted
+runtime checks verified that these are answered locally and do not reach
+Mapepire/Db2:
+
+- current database detail and database-tree `pg_catalog.pg_database` probes;
+- `pg_user` recovery/replay-state probe;
+- `pg_roles` capability probe;
+- `set_config('search_path', ...)` and `set_config('bytea_output', ...)`;
+- `current_setting(...)`, including the locale `UNION` probe;
+- PostgreSQL no-FROM scalar `SELECT 1`;
+- the documented pgAdmin multi-statement initialization batch containing
+  `DateStyle`, `client_min_messages`, `bytea_output`, and `client_encoding`.
+
+The previously delivered 0.1.4 source is reported by the deployment user to
+build successfully on PPC64LE. Version 0.1.5 does not change Mapepire module
+loading or the container runtime identity; it adds the compatibility layer and
+diagnostics described above. A native 0.1.5 image build and live pgAdmin
+connection remain deployment acceptance tests.

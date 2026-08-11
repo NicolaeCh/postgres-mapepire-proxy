@@ -61,3 +61,26 @@ Set `MAPEPIRE_FETCH_SIZE=25`, query more than 100 rows, and verify that all rows
 ## Client timeout compatibility test
 
 Run a driver that issues `SET statement_timeout`. The proxy should return `SET` so startup continues. Do **not** interpret this as an enforced server deadline; cancellation/CancelRequest is a future compatibility item.
+
+
+## pgAdmin startup qualification (0.1.5+)
+
+1. Register the proxy as a server in pgAdmin using the proxy-local PostgreSQL
+   username/password and the configured maintenance database name.
+2. Confirm the server opens without a Db2 error referencing `PG_CATALOG`.
+3. Confirm the logs do not show `SQL0204 ... PG_DATABASE ...` or the no-FROM
+   `SQL0104 ... Valid tokens: , FROM INTO` during connection initialization.
+4. Expand the server/database node. Treat later object-browser failures as
+   separate catalog-compatibility gaps; capture the exact SQL with
+   `SQL_LOG_FAILED_TEXT=true` only for diagnosis.
+5. Return `SQL_LOG_FAILED_TEXT=false` after diagnosis because failed SQL may
+   contain literals or application data.
+
+For a real container-process exit rather than a client-session disconnect,
+capture the exit status and OOM flag in addition to logs:
+
+```bash
+podman inspect postgres-mapepire-proxy_postgres-mapepire-proxy_1 \
+  --format '{{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} error={{.State.Error}}'
+podman logs --tail 200 postgres-mapepire-proxy_postgres-mapepire-proxy_1
+```

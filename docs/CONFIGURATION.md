@@ -77,6 +77,7 @@ One `SQLJob` is leased to one PostgreSQL session for that session's lifetime. It
 | `SQL_ALLOW_MULTI_STATEMENT` | `false` | Allow multiple SQL statements in one Simple Query. Keep disabled unless specifically tested. |
 | `SQL_MAX_ROWS` | `0` | Global row cap; `0` means unlimited. |
 | `SQL_LOG_TEXT` | `false` | Log original/translated SQL. Enable cautiously because SQL can contain sensitive data. |
+| `SQL_LOG_FAILED_TEXT` | `false` | Include original SQL in backend-failure warning logs. Diagnostic use only; SQL literals may be sensitive. |
 
 ## Health and lifecycle
 
@@ -90,3 +91,7 @@ One `SQLJob` is leased to one PostgreSQL session for that session's lifetime. It
 ## Secret handling
 
 `.env` is convenient for Podman/Docker deployments, but protect it as a secret-bearing file (`chmod 600 .env`). The sample `.env` contains placeholders only. If your orchestrator injects environment variables from a secret store, use the same variable names and omit the local secret file from the runtime host.
+
+### Failed-query diagnostics
+
+`SQL_LOG_FAILED_TEXT=false` controls whether the original SQL text is included in warning logs when a backend command fails. Enable it temporarily when diagnosing a new PostgreSQL-client compatibility query. Leave it disabled in normal production environments if SQL literals may contain sensitive data.

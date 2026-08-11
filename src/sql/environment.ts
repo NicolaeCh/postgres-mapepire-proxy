@@ -29,7 +29,7 @@ export function environmentQuery(sql: string, database: string, currentSchema: s
   if (/^select\s+version\(\)/i.test(compact)) return oneText('version', 'PostgreSQL 16.4 compatible gateway to IBM i Db2');
   if (/^select\s+current_database\(\)/i.test(compact)) return oneText('current_database', database || 'ibmi');
   if (/^select\s+current_schema\(\)/i.test(compact)) return undefined; // handled as Db2 CURRENT SCHEMA rewrite
-  if (/^set\s+(client_encoding|application_name|extra_float_digits|standard_conforming_strings|timezone|datestyle|statement_timeout|lock_timeout|idle_in_transaction_session_timeout)\b/i.test(compact)) {
+  if (/^set\s+(client_encoding|client_min_messages|bytea_output|application_name|extra_float_digits|standard_conforming_strings|timezone|datestyle|statement_timeout|lock_timeout|idle_in_transaction_session_timeout)\b/i.test(compact)) {
     return { fields: [], rows: [], tag: 'SET' };
   }
   return undefined;
