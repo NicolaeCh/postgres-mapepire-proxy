@@ -84,3 +84,7 @@ podman inspect postgres-mapepire-proxy_postgres-mapepire-proxy_1 \
   --format '{{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} error={{.State.Error}}'
 podman logs --tail 200 postgres-mapepire-proxy_postgres-mapepire-proxy_1
 ```
+
+## pgAdmin 9.17 compiled-contract test (0.1.6)
+
+Every container build executes `node scripts/verify-pgadmin-compat.mjs` after TypeScript compilation. It checks the exact pgAdmin 9.17 initialization batch elements, database metadata, `pg_stat_gssapi`, current-role capabilities, recovery-state query, database-tree shape, scalar SELECT translation through `SYSIBM.SYSDUMMY1`, and the system-query quarantine fallback.

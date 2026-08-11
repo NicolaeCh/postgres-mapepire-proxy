@@ -59,3 +59,9 @@ After pg-gateway completes startup/TLS/authentication, the proxy detaches the au
 ## pgAdmin startup compatibility
 
 Version 0.1.5 intercepts the PostgreSQL-only startup probes required to establish a pgAdmin session, including current-database metadata (`pg_database`), role capability probes, tablespace metadata, `set_config`, `current_setting`, and basic PostgreSQL no-FROM scalar selects. Harmless pgAdmin session-initialization batches are executed synthetically and are never forwarded to IBM i. General multi-statement SQL remains governed by `SQL_ALLOW_MULTI_STATEMENT`.
+
+## pgAdmin 4 9.17 compatibility - version 0.1.6
+
+0.1.6 replaces the earlier startup-only exceptions with a Virtual PostgreSQL System Layer. pgAdmin's connection initialization, `pg_stat_gssapi`, current-role capabilities, recovery-state check and database-tree query are handled locally. PostgreSQL-only monitoring/system objects are quarantined and never sent to IBM i. See `PGADMIN_COMPATIBILITY.md`.
+
+The proxy advertises PostgreSQL 14.0 by default because pgAdmin 9.17 supports PostgreSQL 14-18 and 14 minimizes version-dependent catalog expectations. This is a compatibility level, not a claim that Db2 for i implements PostgreSQL 14 administrative semantics.

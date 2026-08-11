@@ -14,13 +14,16 @@ flowchart TB
     TCP[net.Server :5432]
     PG[pg-gateway\nstartup/auth/TLS framing]
     SES[ProxySession\nPG protocol state + transaction state]
-    SQL[Translation pipeline]
-    CAT[Catalog compatibility]
+    SQL[Application SQL translation pipeline]
+    CAT[Virtual PostgreSQL System Layer\npg_catalog / pg_stat / PG built-ins]
+    FW[PostgreSQL-system firewall]
     POOL[SessionJobPool\nSQLJob affinity]
     HEALTH[HTTP health :8080]
     TCP --> PG --> SES
-    SES --> SQL
     SES --> CAT
+    CAT -->|application SQL only| FW
+    FW --> SQL
+    SQL --> POOL
     SES --> POOL
     HEALTH --> POOL
   end
@@ -120,20 +123,28 @@ The PostgreSQL connection owns one Mapepire job, therefore all work in a transac
 
 Order:
 
-1. Reject multiple statements unless enabled.
-2. `$n` → `?` and retain parameter reorder map.
-3. PostgreSQL cast shorthand → `CAST` for conservative common cases.
-4. `LIMIT/OFFSET` → Db2 `OFFSET ... ROWS FETCH FIRST ... ROWS ONLY`.
-5. Function compatibility (`now()`, `current_schema()`, etc.).
-6. `information_schema` catalog rewrite.
-7. `pg_catalog` derived-table rewrite.
-8. Optional uppercase normalization for unquoted SQL.
+1. Split Simple Query batches and allow a multi-statement batch only when every statement is handled locally, unless general multi-statement SQL is explicitly enabled.
+2. Resolve PostgreSQL environment/session commands locally.
+3. Resolve pgAdmin/PostgreSQL server-internal SQL through the **Virtual PostgreSQL System Layer**.
+4. Apply the **PostgreSQL-system firewall**: an unhandled `pg_catalog.*`, `pg_stat_*`, replication/lock/settings/system query is never forwarded to IBM i.
+5. `$n` → `?` and retain parameter reorder map.
+6. PostgreSQL cast shorthand → `CAST` for conservative common cases.
+7. `LIMIT/OFFSET` → Db2 `OFFSET ... ROWS FETCH FIRST ... ROWS ONLY`.
+8. Function compatibility (`now()`, `current_schema()`, etc.).
+9. `information_schema` and supported catalog-derived rewrites.
+10. For scalar application `SELECT` statements with no top-level `FROM`, add `FROM SYSIBM.SYSDUMMY1` before forwarding to Db2.
+11. Optional uppercase normalization for unquoted SQL.
 
 `node-sql-parser` is used as a secondary statement classifier, not as the sole translator. Metadata SQL produced by tools is frequently vendor-specific and regex/rule-based interception is more predictable for the targeted compatibility set.
 
-## 8. Catalog strategy
+## 8. Catalog and virtual PostgreSQL system strategy
 
-| PostgreSQL object | IBM i implementation |
+The proxy deliberately separates metadata into two categories:
+
+1. **Portable/application metadata** can be derived from IBM i catalogs.
+2. **PostgreSQL-server internals** have no Db2 equivalent and are virtualized locally. They must never be translated into similarly named IBM i objects.
+
+| PostgreSQL object/family | Proxy implementation |
 |---|---|
 | `information_schema.tables` | `SYSIBM.TABLES` |
 | `information_schema.columns` | `SYSIBM.COLUMNS` |
@@ -141,8 +152,16 @@ Order:
 | `pg_catalog.pg_namespace` | derived table over `QSYS2.SYSSCHEMAS` with synthetic OID |
 | `pg_catalog.pg_class` | derived table over `QSYS2.SYSTABLES` with synthetic OID / relkind |
 | `pg_catalog.pg_type` | static in-memory supported OID set |
+| `pg_catalog.pg_database` | local synthetic database metadata |
+| `pg_catalog.pg_roles` / `pg_user` | local proxy-role capability metadata |
+| `pg_catalog.pg_stat_gssapi` / `pg_stat_ssl` | local connection-security metadata |
+| recovery/WAL functions | stable synthetic non-recovery values |
+| `pg_stat_*`, locks, replication, prepared-xact monitoring | local empty/projected virtual result unless explicitly implemented |
+| unknown PostgreSQL system object | quarantined by the system firewall; never sent to Mapepire |
 
-Synthetic OIDs are compatibility identifiers only. They must not be persisted by applications as durable PostgreSQL catalog object identifiers.
+The pgAdmin 9.17 compatibility profile exposes PostgreSQL `14.0`, the lowest PostgreSQL major supported by that pgAdmin release. This intentionally reduces version-dependent PostgreSQL catalog surface. `PG_SERVER_VERSION` is a wire-protocol compatibility declaration, not a claim that Db2 for i implements PostgreSQL 14 server internals.
+
+Synthetic OIDs and virtual server identifiers are compatibility identifiers only. They must not be persisted by applications as durable PostgreSQL catalog object identifiers.
 
 ## 9. Type mapping
 

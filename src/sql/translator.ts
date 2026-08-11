@@ -31,6 +31,7 @@ export function translateSql(input: string, options: TranslateOptions): Translat
   sql = rewritePgCasts(sql);
   sql = rewriteLimitOffset(sql);
   sql = rewritePgFunctions(sql);
+  sql = ensureDb2SelectSource(sql);
 
   if (options.informationSchemaRewrite) sql = rewriteInformationSchema(sql);
   if (options.pgCatalogCompat) sql = rewritePgCatalog(sql);
@@ -76,6 +77,58 @@ function rewritePgFunctions(sql: string): string {
     .replace(/\bcurrent_time\s*\(\s*\)/gi, 'CURRENT TIME')
     .replace(/\btrue\b/gi, 'TRUE')
     .replace(/\bfalse\b/gi, 'FALSE');
+}
+
+
+function ensureDb2SelectSource(sql: string): string {
+  if (!/^\s*select\b/i.test(sql)) return sql;
+  if (hasTopLevelKeyword(sql, 'from')) return sql;
+  if (hasTopLevelKeyword(sql, 'union')) return sql;
+
+  // PostgreSQL permits SELECT <expression> without FROM. Db2 for i requires
+  // a row source for many such expressions. SYSIBM.SYSDUMMY1 is the canonical
+  // one-row compatibility source and preserves PostgreSQL scalar semantics.
+  const clauses = ['order', 'offset', 'fetch'];
+  let insertion = sql.length;
+  for (const clause of clauses) {
+    const pos = topLevelKeywordIndex(sql, clause);
+    if (pos >= 0 && pos < insertion) insertion = pos;
+  }
+  const head = sql.slice(0, insertion).trimEnd();
+  const tail = sql.slice(insertion);
+  return `${head} FROM SYSIBM.SYSDUMMY1${tail ? ` ${tail.trimStart()}` : ''}`;
+}
+
+function hasTopLevelKeyword(sql: string, word: string): boolean {
+  return topLevelKeywordIndex(sql, word) >= 0;
+}
+
+function topLevelKeywordIndex(sql: string, word: string): number {
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < sql.length; i++) {
+    const c = sql[i]!;
+    if (c === "'" && !inDouble) {
+      if (inSingle && sql[i + 1] === "'") { i++; continue; }
+      inSingle = !inSingle;
+      continue;
+    }
+    if (c === '"' && !inSingle) {
+      if (inDouble && sql[i + 1] === '"') { i++; continue; }
+      inDouble = !inDouble;
+      continue;
+    }
+    if (inSingle || inDouble) continue;
+    if (c === '(') { depth++; continue; }
+    if (c === ')') { depth = Math.max(0, depth - 1); continue; }
+    if (depth !== 0) continue;
+    if (sql.slice(i, i + word.length).toLowerCase() !== word) continue;
+    const before = i === 0 ? '' : sql[i - 1]!;
+    const after = sql[i + word.length] ?? '';
+    if (!/[A-Za-z0-9_$]/.test(before) && !/[A-Za-z0-9_$]/.test(after)) return i;
+  }
+  return -1;
 }
 
 function rewriteInformationSchema(sql: string): string {

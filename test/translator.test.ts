@@ -22,6 +22,11 @@ describe('SQL translation', () => {
   it('rewrites information_schema', () => {
     expect(translateSql('select * from information_schema.tables', opts).sql).toContain('SYSIBM.TABLES');
   });
+
+  it('adds SYSIBM.SYSDUMMY1 for PostgreSQL scalar SELECT without FROM', () => {
+    expect(translateSql('select now() as ts', opts).sql)
+      .toBe('SELECT CURRENT TIMESTAMP AS TS FROM SYSIBM.SYSDUMMY1');
+  });
   it('rejects multiple statements', () => {
     expect(() => translateSql('select 1; delete from x', opts)).toThrow(/Multiple SQL/);
   });

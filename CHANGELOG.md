@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.6 - 2026-08-11
+
+- Replaced incremental pgAdmin exceptions with a Virtual PostgreSQL System Layer.
+- Audited pgAdmin 4 REL-9_17 psycopg3 initialization, recovery, database-tree and server-statistics SQL.
+- Added synthetic `pg_catalog.pg_stat_gssapi` response.
+- Added six-column pgAdmin role capability response including `can_signal_backend`.
+- Added exact `check_recovery.sql` handling so pgAdmin does not mark the server disconnected.
+- Added database-tree `description` compatibility.
+- Added a PostgreSQL-system firewall: unhandled `pg_catalog.*` and `pg_*` constructs cannot reach Db2 for i.
+- Virtualized PostgreSQL-only monitoring relations/functions as local empty result sets.
+- Added `SYSIBM.SYSDUMMY1` to translated scalar SELECTs that have no top-level FROM.
+- Default `PG_SERVER_VERSION` is now `14.0`.
+- Added `scripts/verify-pgadmin-compat.mjs` as a build-time compiled-code contract test.
+
 
 ## 0.1.5 - 2026-08-11
 

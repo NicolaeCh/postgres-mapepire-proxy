@@ -21,7 +21,7 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.5 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.6 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
@@ -73,3 +73,21 @@ build successfully on PPC64LE. Version 0.1.5 does not change Mapepire module
 loading or the container runtime identity; it adds the compatibility layer and
 diagnostics described above. A native 0.1.5 image build and live pgAdmin
 connection remain deployment acceptance tests.
+
+
+## 0.1.6 pgAdmin 9.17 contract validation
+
+Version 0.1.6 was audited against pgAdmin 4 REL-9_17 connection code and SQL templates. The implementation was type-checked with TypeScript 5.8 in the delivery workspace using compatibility stubs for external packages, then the compiled compatibility contract script was executed successfully. The contract covers:
+
+- the initialization `SET` / `set_config` statements;
+- `SELECT version()` with the expected `version` column;
+- current-database metadata from `pg_catalog.pg_database`;
+- `pg_catalog.pg_stat_gssapi`;
+- current-role capability fields including `can_signal_backend`;
+- pgAdmin's recovery/replay-state query;
+- database-tree metadata projection;
+- local PostgreSQL scalar/session functions;
+- `SYSIBM.SYSDUMMY1` injection for scalar application `SELECT` statements that are legitimately forwarded to Db2;
+- quarantine of an unknown PostgreSQL system relation so it cannot reach Mapepire.
+
+Both `Containerfile` and `Dockerfile` execute `node scripts/verify-pgadmin-compat.mjs` after `npm run build`; a failed compatibility contract therefore fails image construction. The delivery workspace did not have a live pgAdmin + IBM i/Mapepire endpoint, so a native 0.1.6 image build and live pgAdmin 9.17 connection remain deployment acceptance tests.

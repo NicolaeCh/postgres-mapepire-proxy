@@ -8,7 +8,7 @@ All runtime configuration is supplied through `.env`. The repository includes `.
 |---|---:|---|
 | `PG_LISTEN_HOST` | `0.0.0.0` | Listener address. |
 | `PG_LISTEN_PORT` | `5432` | PostgreSQL wire-protocol port. |
-| `PG_SERVER_VERSION` | proxy version string | Value exposed to PostgreSQL clients. |
+| `PG_SERVER_VERSION` | `14.0` | PostgreSQL compatibility version exposed in wire `ParameterStatus`. Keep this value numeric. The pgAdmin 9.17 compatibility profile is validated against PostgreSQL 14 semantics to minimize version-specific catalog probes. |
 | `PG_MAX_CLIENTS` | `100` | Maximum simultaneous client sockets. |
 | `PG_CLIENT_IDLE_TIMEOUT_MS` | `1800000` | Idle socket timeout. |
 | `PG_MAX_FRONTEND_MESSAGE_BYTES` | `16777216` | Maximum buffered size of a single post-authentication PG frontend frame. |

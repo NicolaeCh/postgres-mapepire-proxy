@@ -37,3 +37,13 @@ Decision: `QSYS2.SYSSCHEMAS` and `QSYS2.SYSTABLES` are used for PostgreSQL names
 - https://github.com/taozhi8833998/node-sql-parser
 
 Decision: 5.4.0. It is used as a secondary classifier, not as a complete PostgreSQL-to-Db2 transpiler. Upstream documents Node.js usage through CommonJS (`const { Parser } = require('node-sql-parser')`). Because the proxy itself is native ESM, version 0.1.4 isolates that boundary in `src/sql/parser-sdk.ts` using Node's `createRequire()` bridge.
+
+## pgAdmin 4 9.17 compatibility sources (0.1.6)
+
+- https://www.pgadmin.org/docs/pgadmin4/9.17/release_notes_9_17.html
+- https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/utils/driver/psycopg3/connection.py
+- https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/browser/server_groups/servers/__init__.py
+- https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/browser/server_groups/servers/templates/connect/sql/default/check_recovery.sql
+- https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/browser/server_groups/servers/databases/templates/databases/sql/default/nodes.sql
+- https://github.com/pgadmin-org/pgadmin4/blob/REL-9_17/web/pgadmin/browser/server_groups/servers/templates/servers/sql/default/stats.sql
+- https://www.ibm.com/docs/en/i/7.4.0?topic=views-sysdummy1

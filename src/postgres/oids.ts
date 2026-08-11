@@ -7,6 +7,7 @@ export const OID = {
   int4: 23,
   text: 25,
   oid: 26,
+  json: 114,
   float4: 700,
   float8: 701,
   bpchar: 1042,

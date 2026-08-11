@@ -1,4 +1,5 @@
 import type { QueryResult, ColumnMetaData } from '@ibm/mapepire-js';
+import { createHash } from 'node:crypto';
 import type { SQLJobInstance } from '../mapepire/sdk.js';
 import type { PostgresConnection } from 'pg-gateway';
 import { config } from '../config.js';
@@ -14,7 +15,7 @@ import {
 import { syntheticCatalog } from '../sql/catalog.js';
 import { classify, isIdempotentRead, type StatementKind } from '../sql/classifier.js';
 import { environmentQuery, type SyntheticResult } from '../sql/environment.js';
-import { pgAdminCompatibilityQuery } from '../sql/pgadmin.js';
+import { containsUnhandledPostgresSystemSql, pgAdminCompatibilityQuery } from '../sql/pgadmin.js';
 import { reorderParameters, translateSql, type Translation } from '../sql/translator.js';
 
 interface PreparedStatement { sql: string; parameterOids: number[]; translation?: Translation; }
@@ -158,11 +159,7 @@ export class ProxySession {
       const synthetic: SyntheticResult[] = [];
       for (const statement of batch) {
         const result = environmentQuery(statement, this.client.database ?? 'ibmi', this.currentSchema)
-          ?? pgAdminCompatibilityQuery(statement, {
-            database: this.client.database ?? 'ibmi',
-            user: this.client.user ?? config.pg.user ?? 'proxy',
-            currentSchema: this.currentSchema,
-          });
+          ?? pgAdminCompatibilityQuery(statement, this.pgCompatContext());
         if (!result) {
           // Fall through to the normal path, which will enforce
           // SQL_ALLOW_MULTI_STATEMENT and reject unsafe/general batches.
@@ -227,17 +224,21 @@ export class ProxySession {
     const env = environmentQuery(sql, this.client.database ?? 'ibmi', this.currentSchema);
     if (env) { this.sendSynthetic(env); return; }
 
-    const pgAdmin = pgAdminCompatibilityQuery(sql, {
-      database: this.client.database ?? 'ibmi',
-      user: this.client.user ?? config.pg.user ?? 'proxy',
-      currentSchema: this.currentSchema,
-    });
+    const pgAdmin = pgAdminCompatibilityQuery(sql, this.pgCompatContext());
     if (pgAdmin) { this.sendSynthetic(pgAdmin); return; }
     if (rawKind === 'set') {
       throw sqlError('0A000', 'This PostgreSQL SET option is not supported by proxy v0.1');
     }
     const cat = syntheticCatalog(sql);
     if (cat) { this.sendSynthetic(cat); return; }
+
+    // Never let an unhandled PostgreSQL system catalog/function fall through
+    // into IBM i. This is a compatibility firewall, not a Db2 error mapper.
+    if (containsUnhandledPostgresSystemSql(sql)) {
+      const error = sqlError('0A000', 'PostgreSQL system catalog/function is not implemented by the proxy compatibility layer');
+      (error as Error & { proxySql?: string }).proxySql = sql;
+      throw error;
+    }
 
     let translation: Translation;
     try {
@@ -331,6 +332,22 @@ export class ProxySession {
     for (const row of rows) {
       this.send(dataRow(columns.map((c) => getRowValue(row, c))));
     }
+  }
+
+  private pgCompatContext() {
+    const digest = createHash('sha256')
+      .update(`${config.ibmi.host}:${config.ibmi.port}:${config.ibmi.defaultSchema}`)
+      .digest();
+    // PostgreSQL system_identifier is an unsigned 64-bit decimal. Keep the
+    // synthetic value positive and stable for a given IBM i endpoint.
+    const numeric = (digest.readBigUInt64BE(0) & ((1n << 63n) - 1n)) || 1n;
+    return {
+      database: this.client.database ?? 'ibmi',
+      user: this.client.user ?? config.pg.user ?? 'proxy',
+      currentSchema: this.currentSchema,
+      serverPort: config.pg.port,
+      systemIdentifier: numeric.toString(10),
+    };
   }
 
   private currentJob(): SQLJobInstance {
