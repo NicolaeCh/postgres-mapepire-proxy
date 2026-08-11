@@ -1,8 +1,9 @@
-import { SQLJob, type DaemonServer, type JDBCOptions } from '@ibm/mapepire-js';
+import type { DaemonServer, JDBCOptions } from '@ibm/mapepire-js';
+import { SQLJob, type SQLJobInstance } from './sdk.js';
 import { Logger } from '../logger.js';
 
 interface Waiter {
-  resolve: (job: SQLJob) => void;
+  resolve: (job: SQLJobInstance) => void;
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
 }
@@ -26,9 +27,9 @@ export interface PoolStats {
  * SQLJob for the lifetime of each PostgreSQL session.
  */
 export class SessionJobPool {
-  private idle: SQLJob[] = [];
-  private leased = new Set<SQLJob>();
-  private all = new Set<SQLJob>();
+  private idle: SQLJobInstance[] = [];
+  private leased = new Set<SQLJobInstance>();
+  private all = new Set<SQLJobInstance>();
   private waiters: Waiter[] = [];
   private creating = 0;
   private ending = false;
@@ -48,14 +49,14 @@ export class SessionJobPool {
     this.logger.info('Mapepire session pool initialized', this.stats());
   }
 
-  private async connectJob(): Promise<SQLJob> {
+  private async connectJob(): Promise<SQLJobInstance> {
     const job = new SQLJob(this.jdbc);
     await job.connect(this.creds);
     await job.execute(`SET CURRENT SCHEMA ${quoteIdent(this.defaultSchema)}`);
     return job;
   }
 
-  private async createTrackedJob(): Promise<SQLJob> {
+  private async createTrackedJob(): Promise<SQLJobInstance> {
     this.creating += 1;
     try {
       return await this.connectJob();
@@ -64,14 +65,14 @@ export class SessionJobPool {
     }
   }
 
-  private async createIdleJob(): Promise<SQLJob> {
+  private async createIdleJob(): Promise<SQLJobInstance> {
     const job = await this.createTrackedJob();
     this.all.add(job);
     this.idle.push(job);
     return job;
   }
 
-  async acquire(): Promise<SQLJob> {
+  async acquire(): Promise<SQLJobInstance> {
     if (this.ending) throw new Error('Mapepire pool is shutting down');
     const job = this.idle.shift();
     if (job) {
@@ -89,7 +90,7 @@ export class SessionJobPool {
       return created;
     }
 
-    return new Promise<SQLJob>((resolve, reject) => {
+    return new Promise<SQLJobInstance>((resolve, reject) => {
       const timer = setTimeout(() => {
         const idx = this.waiters.findIndex((w) => w.timer === timer);
         if (idx >= 0) this.waiters.splice(idx, 1);
@@ -99,7 +100,7 @@ export class SessionJobPool {
     });
   }
 
-  async release(job: SQLJob): Promise<void> {
+  async release(job: SQLJobInstance): Promise<void> {
     if (!this.all.has(job)) return;
     this.leased.delete(job);
 
@@ -124,7 +125,7 @@ export class SessionJobPool {
     }
   }
 
-  async invalidate(job: SQLJob, reason?: unknown): Promise<void> {
+  async invalidate(job: SQLJobInstance, reason?: unknown): Promise<void> {
     this.idle = this.idle.filter((j) => j !== job);
     this.leased.delete(job);
     this.all.delete(job);
@@ -149,7 +150,7 @@ export class SessionJobPool {
     }
   }
 
-  private async closeJob(job: SQLJob): Promise<void> {
+  private async closeJob(job: SQLJobInstance): Promise<void> {
     try { await job.close(); } catch { /* best effort */ }
   }
 

@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.2 reference implementation**
+Version: **0.1.3 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,8 +21,12 @@ Version: **0.1.2 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix notes `docs/BUILD_FIX_0.1.1.md` and `docs/BUILD_FIX_0.1.2.md`; source patches `postgres-mapepire-proxy-0.1.0-to-0.1.1.patch` and `postgres-mapepire-proxy-0.1.1-to-0.1.2.patch` are included for traceability.
+- Build-fix notes `docs/BUILD_FIX_0.1.1.md`, `docs/BUILD_FIX_0.1.2.md`, and `docs/BUILD_FIX_0.1.3.md`; source patches `postgres-mapepire-proxy-0.1.0-to-0.1.1.patch`, `postgres-mapepire-proxy-0.1.1-to-0.1.2.patch`, and the separately delivered 0.1.2-to-0.1.3 patch are included for traceability.
 
 ## Validation scope
 
 See `docs/VALIDATION.md`. This build environment could not resolve npm packages from the public registry, so the archive does not claim a dependency-resolved container build here. TypeScript syntax/transpile validation, protocol/translator targeted tests and shell/configuration checks are performed before packaging. A full `npm install`, `npm test`, `npm run typecheck`, amd64 build and native ppc64le build are required in the deployment environment before production promotion.
+
+### 0.1.3 runtime compatibility correction
+
+`src/mapepire/sdk.ts` is the ESM/CommonJS interop boundary for `@ibm/mapepire-js` 0.6.1. `scripts/verify-mapepire-module.mjs` performs the equivalent runtime-export check during image construction. See `docs/BUILD_FIX_0.1.3.md`.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.3 - 2026-08-11
+
+- Fixed Node 24 ESM startup failure with `@ibm/mapepire-js` 0.6.1.
+- Added a dedicated CommonJS interop adapter using `createRequire()` for the runtime `SQLJob` constructor.
+- Kept Mapepire interfaces/types as TypeScript type-only imports.
+- Added a build-time Mapepire module smoke test so incompatible package exports fail during image construction instead of at container startup.
+- Updated runtime image/version references to 0.1.3.
+
 ## 0.1.2 - 2026-08-11
 
 - Fixed runtime-stage container build failure on Debian-based official Node images caused by attempting to create a group named `proxy`; Debian already reserves that system group.

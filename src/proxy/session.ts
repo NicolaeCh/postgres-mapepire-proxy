@@ -1,4 +1,5 @@
-import type { SQLJob, QueryResult, ColumnMetaData } from '@ibm/mapepire-js';
+import type { QueryResult, ColumnMetaData } from '@ibm/mapepire-js';
+import type { SQLJobInstance } from '../mapepire/sdk.js';
 import type { PostgresConnection } from 'pg-gateway';
 import { config } from '../config.js';
 import { Logger } from '../logger.js';
@@ -21,7 +22,7 @@ interface Portal { statementName: string; parameters: unknown[]; resultFormats: 
 export interface ClientInfo { user?: string; database?: string; applicationName?: string; }
 
 export class ProxySession {
-  private job?: SQLJob;
+  private job?: SQLJobInstance;
   private prepared = new Map<string, PreparedStatement>();
   private portals = new Map<string, Portal>();
   private inTransaction = false;
@@ -293,7 +294,7 @@ export class ProxySession {
     }
   }
 
-  private currentJob(): SQLJob {
+  private currentJob(): SQLJobInstance {
     if (!this.job) throw new Error('Mapepire job not initialized');
     return this.job;
   }

@@ -88,7 +88,7 @@ export const config = {
   pg: {
     host: str('PG_LISTEN_HOST', '0.0.0.0'),
     port: num('PG_LISTEN_PORT', 5432),
-    serverVersion: str('PG_SERVER_VERSION', '16.4 (IBM i Mapepire Proxy 0.1.2)'),
+    serverVersion: str('PG_SERVER_VERSION', '16.4 (IBM i Mapepire Proxy 0.1.3)'),
     maxClients: num('PG_MAX_CLIENTS', 100),
     idleTimeoutMs: num('PG_CLIENT_IDLE_TIMEOUT_MS', 1_800_000),
     maxFrontendMessageBytes: num('PG_MAX_FRONTEND_MESSAGE_BYTES', 16 * 1024 * 1024),
