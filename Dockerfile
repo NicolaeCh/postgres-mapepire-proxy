@@ -15,15 +15,15 @@ FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
-RUN groupadd --system --gid 10001 proxy \
- && useradd --system --uid 10001 --gid proxy --home-dir /app --shell /usr/sbin/nologin proxy
+# The official Node image already provides an unprivileged `node` user/group
+# (UID/GID 1000) on every supported architecture. Reusing it avoids collisions
+# with Debian system groups such as `proxy`.
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/dist ./dist
+COPY --chown=node:node package.json ./package.json
+COPY --chown=node:node scripts ./scripts
 
-COPY --from=build --chown=proxy:proxy /app/node_modules ./node_modules
-COPY --from=build --chown=proxy:proxy /app/dist ./dist
-COPY --chown=proxy:proxy package.json ./package.json
-COPY --chown=proxy:proxy scripts ./scripts
-
-USER proxy
+USER node
 EXPOSE 5432 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

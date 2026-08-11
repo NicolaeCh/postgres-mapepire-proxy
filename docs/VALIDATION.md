@@ -21,14 +21,14 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.1 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.2 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
 
-## 0.1.1 build-compatibility validation
+## 0.1.2 build-compatibility validation
 
-Version 0.1.1 specifically addresses the Node 24 / TypeScript generic `Buffer` errors reported during both AMD64 and PPC64LE container builds. The corrected source was type-checked with TypeScript 5.8 against strict modern Node type definitions. The protocol-only source was additionally compiled independently to verify the `Buffer<ArrayBuffer>` / `Buffer<ArrayBufferLike>` boundary fix.
+Version 0.1.2 specifically addresses the Node 24 / TypeScript generic `Buffer` errors reported during both AMD64 and PPC64LE container builds. The corrected source was type-checked with TypeScript 5.8 against strict modern Node type definitions. The protocol-only source was additionally compiled independently to verify the `Buffer<ArrayBuffer>` / `Buffer<ArrayBufferLike>` boundary fix.
 
 The build-stage command remains:
 
@@ -37,3 +37,8 @@ npm run build
 ```
 
 and should now complete before the runtime stage is entered on both target architectures.
+
+
+## 0.1.2 runtime-image identity validation
+
+Version 0.1.2 removes the custom `proxy` OS account creation from both container definitions. The official Node 24 Bookworm Slim image defines an unprivileged `node` user/group, and the runtime stage now reuses that identity. Static validation confirms there are no remaining `groupadd`, `useradd`, `USER proxy`, or `--chown=proxy:proxy` directives in `Containerfile` or `Dockerfile`.

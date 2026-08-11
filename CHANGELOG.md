@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2 - 2026-08-11
+
+- Fixed runtime-stage container build failure on Debian-based official Node images caused by attempting to create a group named `proxy`; Debian already reserves that system group.
+- Removed custom `groupadd` / `useradd` commands from both `Containerfile` and `Dockerfile`.
+- Runtime now uses the unprivileged `node` user and `node` group already supplied by the official Node image (UID/GID 1000).
+- Updated all runtime `COPY --chown` directives to `node:node`.
+- Kept the container non-root while making the image definition identical across AMD64 and PPC64LE.
+- Updated image/version references to 0.1.2.
+
 ## 0.1.1 - 2026-08-11
 
 - Fixed TypeScript build failures seen on both AMD64 and PPC64LE with current Node 24 type definitions.

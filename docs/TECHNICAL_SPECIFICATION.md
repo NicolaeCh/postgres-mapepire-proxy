@@ -194,7 +194,7 @@ Base image: official Docker Hub `node:24-bookworm-slim` (Node 24 LTS). The tag c
 - `linux/amd64`
 - `linux/ppc64le`
 
-The runtime executes as non-root UID/GID 10001.
+The runtime executes as the non-root `node` user/group (UID/GID 1000) provided by the official Node image.
 
 ## 13. Implementation phases
 
