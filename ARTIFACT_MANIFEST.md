@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.3 reference implementation**
+Version: **0.1.4 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,12 +21,16 @@ Version: **0.1.3 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix notes `docs/BUILD_FIX_0.1.1.md`, `docs/BUILD_FIX_0.1.2.md`, and `docs/BUILD_FIX_0.1.3.md`; source patches `postgres-mapepire-proxy-0.1.0-to-0.1.1.patch`, `postgres-mapepire-proxy-0.1.1-to-0.1.2.patch`, and the separately delivered 0.1.2-to-0.1.3 patch are included for traceability.
+- Build-fix notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.4.md`; historical source patches included in the tree plus the separately delivered 0.1.3-to-0.1.4 patch provide traceability.
 
 ## Validation scope
 
 See `docs/VALIDATION.md`. This build environment could not resolve npm packages from the public registry, so the archive does not claim a dependency-resolved container build here. TypeScript syntax/transpile validation, protocol/translator targeted tests and shell/configuration checks are performed before packaging. A full `npm install`, `npm test`, `npm run typecheck`, amd64 build and native ppc64le build are required in the deployment environment before production promotion.
 
-### 0.1.3 runtime compatibility correction
+### 0.1.3 Mapepire runtime compatibility correction
 
-`src/mapepire/sdk.ts` is the ESM/CommonJS interop boundary for `@ibm/mapepire-js` 0.6.1. `scripts/verify-mapepire-module.mjs` performs the equivalent runtime-export check during image construction. See `docs/BUILD_FIX_0.1.3.md`.
+`src/mapepire/sdk.ts` is the ESM/CommonJS interop boundary for `@ibm/mapepire-js` 0.6.1. Version 0.1.4 supersedes the former Mapepire-only build check with the consolidated `scripts/verify-runtime-modules.mjs`. See `docs/BUILD_FIX_0.1.3.md` and `docs/BUILD_FIX_0.1.4.md`.
+
+### 0.1.4 runtime dependency compatibility correction
+
+`src/sql/parser-sdk.ts` is the ESM/CommonJS interop boundary for `node-sql-parser` 5.4.0. `scripts/verify-runtime-modules.mjs` now validates all runtime package boundaries used by the service: Mapepire, node-sql-parser, dotenv/config and pg-gateway. See `docs/BUILD_FIX_0.1.4.md`.

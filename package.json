@@ -1,6 +1,6 @@
 {
   "name": "postgres-mapepire-proxy",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "PostgreSQL v3 wire-protocol gateway to IBM i Db2 via Mapepire",
   "type": "module",
@@ -16,7 +16,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "verify:mapepire": "node scripts/verify-mapepire-module.mjs"
+    "verify:mapepire": "node scripts/verify-runtime-modules.mjs",
+    "verify:runtime": "node scripts/verify-runtime-modules.mjs"
   },
   "dependencies": {
     "@ibm/mapepire-js": "0.6.1",

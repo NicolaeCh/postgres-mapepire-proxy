@@ -21,7 +21,7 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.3 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.4 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
@@ -46,3 +46,7 @@ Version 0.1.2 removes the custom `proxy` OS account creation from both container
 ## 0.1.3 Mapepire module-format validation
 
 Version 0.1.3 removes the native ESM named runtime import of `SQLJob` from `@ibm/mapepire-js`. The Mapepire package is loaded through `createRequire()` because version 0.6.1 publishes a Webpack CommonJS `main` bundle while the proxy runs as native ESM. A build-time smoke test now verifies that the installed module exposes a callable `SQLJob` constructor before TypeScript compilation and before the runtime image is produced.
+
+## 0.1.4 runtime dependency-format validation
+
+Version 0.1.4 adds a consolidated runtime-module smoke test executed immediately after `npm install` in both `Containerfile` and `Dockerfile`. It validates the actual installed package entry points rather than relying only on TypeScript declaration files. This specifically prevents CommonJS/ESM mismatches from reaching container startup.

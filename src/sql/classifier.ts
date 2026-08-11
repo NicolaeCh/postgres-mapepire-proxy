@@ -1,4 +1,4 @@
-import { Parser } from 'node-sql-parser';
+import { Parser } from './parser-sdk.js';
 const parser = new Parser();
 
 export type StatementKind =

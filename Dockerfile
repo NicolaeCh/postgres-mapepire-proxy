@@ -5,9 +5,9 @@ FROM ${NODE_IMAGE} AS build
 WORKDIR /app
 
 COPY package*.json ./
-COPY scripts/verify-mapepire-module.mjs ./scripts/verify-mapepire-module.mjs
+COPY scripts/verify-runtime-modules.mjs ./scripts/verify-runtime-modules.mjs
 RUN npm install --ignore-scripts \
- && node scripts/verify-mapepire-module.mjs
+ && node scripts/verify-runtime-modules.mjs
 COPY tsconfig.json eslint.config.js .prettierrc.json ./
 COPY src ./src
 RUN npm run build

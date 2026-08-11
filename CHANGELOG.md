@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.4 - 2026-08-11
+
+- Fixed Node 24 ESM startup failure with `node-sql-parser` 5.4.0 (`Parser` is not a named ESM runtime export).
+- Added `src/sql/parser-sdk.ts` as the CommonJS/ESM interop boundary using `createRequire()`, matching the upstream package's documented Node.js usage.
+- Replaced the Mapepire-only build smoke test with `scripts/verify-runtime-modules.mjs`.
+- Build now validates Mapepire `SQLJob`, node-sql-parser `Parser` including a real PostgreSQL parse, `dotenv/config`, and pg-gateway's ESM exports before TypeScript compilation.
+- Updated image/version references to 0.1.4.
+
 ## 0.1.3 - 2026-08-11
 
 - Fixed Node 24 ESM startup failure with `@ibm/mapepire-js` 0.6.1.

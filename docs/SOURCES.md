@@ -1,6 +1,6 @@
 # Upstream Sources and Version Decisions
 
-Verified on 2026-08-10.
+Verified on 2026-08-11.
 
 ## Node.js / official container
 
@@ -34,5 +34,6 @@ Decision: `QSYS2.SYSSCHEMAS` and `QSYS2.SYSTABLES` are used for PostgreSQL names
 ## SQL parser
 
 - https://www.npmjs.com/package/node-sql-parser
+- https://github.com/taozhi8833998/node-sql-parser
 
-Decision: 5.4.0. It is used as a secondary classifier, not as a complete PostgreSQL-to-Db2 transpiler.
+Decision: 5.4.0. It is used as a secondary classifier, not as a complete PostgreSQL-to-Db2 transpiler. Upstream documents Node.js usage through CommonJS (`const { Parser } = require('node-sql-parser')`). Because the proxy itself is native ESM, version 0.1.4 isolates that boundary in `src/sql/parser-sdk.ts` using Node's `createRequire()` bridge.
