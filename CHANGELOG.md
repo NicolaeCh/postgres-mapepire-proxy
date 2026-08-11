@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1 - 2026-08-11
+
+- Fixed TypeScript build failures seen on both AMD64 and PPC64LE with current Node 24 type definitions.
+- Logger metadata now accepts typed interfaces such as `PoolStats` without requiring a `Record<string, unknown>` index signature.
+- PostgreSQL wire-frame payload boundaries now use `Uint8Array`, avoiding `Buffer<ArrayBuffer>` versus `Buffer<ArrayBufferLike>` generic incompatibilities.
+- The incremental frontend accumulation buffer is now typed as `Uint8Array` for the same cross-version Node typing compatibility.
+- Normalized `node:net` data chunks before passing them to the PostgreSQL protocol parser.
+- Re-ran source-level TypeScript validation against TypeScript 5.8 and strict Node buffer typings.
+
 ## 0.1.0 - 2026-08-10
 
 - Initial implementation package.

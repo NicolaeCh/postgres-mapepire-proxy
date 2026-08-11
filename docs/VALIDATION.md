@@ -21,7 +21,19 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.0 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.1 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
+
+## 0.1.1 build-compatibility validation
+
+Version 0.1.1 specifically addresses the Node 24 / TypeScript generic `Buffer` errors reported during both AMD64 and PPC64LE container builds. The corrected source was type-checked with TypeScript 5.8 against strict modern Node type definitions. The protocol-only source was additionally compiled independently to verify the `Buffer<ArrayBuffer>` / `Buffer<ArrayBufferLike>` boundary fix.
+
+The build-stage command remains:
+
+```bash
+npm run build
+```
+
+and should now complete before the runtime stage is entered on both target architectures.

@@ -66,11 +66,16 @@ export function createPgServer(pool: SessionJobPool, logger: Logger) {
             const protocolSocket = detachedProtocolSocket;
             const activeSession = session;
             if (!protocolSocket || !activeSession) return;
+            // Node's stream typings may expose data as string | Buffer depending
+            // on the active @types/node version. No encoding is configured on
+            // this socket, so Buffer is expected at runtime; normalize anyway
+            // to keep the protocol boundary typed as Uint8Array.
+            const chunk = typeof data === 'string' ? Buffer.from(data) : data;
             // Apply TCP backpressure while a Mapepire command is being handled.
             // This prevents a fast/malicious frontend from accumulating an
             // unbounded queue of protocol chunks behind a slow IBM i query.
             protocolSocket.pause();
-            void activeSession.handleRaw(data).finally(() => {
+            void activeSession.handleRaw(chunk).finally(() => {
               if (!protocolSocket.destroyed) protocolSocket.resume();
             });
           });

@@ -14,11 +14,11 @@ function cstr(value: string): Buffer {
   return Buffer.concat([Buffer.from(value, 'utf8'), Buffer.from([0])]);
 }
 
-function frame(type: string, payload = Buffer.alloc(0)): Buffer {
-  const out = Buffer.allocUnsafe(1 + 4 + payload.length);
+function frame(type: string, payload: Uint8Array = new Uint8Array(0)): Buffer {
+  const out = Buffer.allocUnsafe(1 + 4 + payload.byteLength);
   out.writeUInt8(type.charCodeAt(0), 0);
-  out.writeInt32BE(payload.length + 4, 1);
-  payload.copy(out, 5);
+  out.writeInt32BE(payload.byteLength + 4, 1);
+  out.set(payload, 5);
   return out;
 }
 

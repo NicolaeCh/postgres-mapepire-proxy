@@ -9,7 +9,7 @@ The proxy deliberately separates the two identities:
 - **PostgreSQL client identity** — `PG_PROXY_USER` / `PG_PROXY_PASSWORD`, validated locally by `pg-gateway`.
 - **IBM i service identity** — `IBMI_USER` / `IBMI_PASSWORD`, used by every Mapepire backend job.
 
-Client passwords are never forwarded to IBM i. This is the key simplification in v0.1.0.
+Client passwords are never forwarded to IBM i. This is the key simplification in v0.1.1.
 
 ## Runtime architecture
 
@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.0 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.0
+podman build -t postgres-mapepire-proxy:0.1.1 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.1
 ```
 
 5. Test:

@@ -30,7 +30,11 @@ export class ProxySession {
   private chain: Promise<void> = Promise.resolve();
   private extendedError = false;
   private currentSchema = config.ibmi.defaultSchema;
-  private frontendBuffer = Buffer.alloc(0);
+  // Keep the TCP accumulation buffer typed as Uint8Array. Node 24's Buffer
+  // definitions parameterize the backing ArrayBuffer type, and mixing buffers
+  // returned by concat/subarray can otherwise produce Buffer<ArrayBuffer> vs
+  // Buffer<ArrayBufferLike> assignment errors during TypeScript compilation.
+  private frontendBuffer: Uint8Array = new Uint8Array(0);
 
   constructor(
     private readonly connection: PostgresConnection,
