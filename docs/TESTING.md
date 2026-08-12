@@ -110,6 +110,10 @@ pgAdmin IBM i schema contract check OK
 
 On a live IBM i endpoint, register the server and verify: the Dashboard no longer returns `chart_data` HTTP 500 errors; Roles/Tablespaces do not fail on missing `description`; the Database SQL tab does not fail on a missing ACL `grantor`; expand Schemas and verify the expected IBM i SQL schemas from `QSYS2.SYSSCHEMAS`; select the SQL/Properties tabs for an application schema; create a test schema with only Name/Owner set and leave Comment/Privileges/Default privileges/Security labels empty; refresh and verify the new schema appears; remove the test schema with an IBM i-native administration tool until DROP SCHEMA support is qualified in the proxy.
 
+## pgAdmin table-discovery qualification (0.1.10)
+
+Verify that the build-time browser contract returns `false` for pgAdmin's pgAgent capability query. In a live IBM i test, expand a user schema and confirm DEBUG output includes `pgAdmin IBM i table catalog request` with `resolvedSchema` and a non-zero `tableCount` when tables exist. The catalog query must use `QSYS2.SYSTABLES.FILE_TYPE = 'D'` and no `SYSTEM_TABLE_TYPE` reference.
+
 ## pgAdmin table browser / SERIAL qualification (0.1.9)
 
 A successful container build must additionally print:

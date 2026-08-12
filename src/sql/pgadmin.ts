@@ -135,6 +135,24 @@ export function pgAdminCompatibilityQuery(
     return syntheticDashboardStats(s);
   }
 
+  // pgAdmin's pgAgent module performs this scalar capability probe while
+  // initializing a database connection.  pgAgent is a PostgreSQL extension and
+  // has no IBM i analogue; the correct virtual answer is one boolean FALSE row.
+  // This MUST be handled before generic pg_class/pg_namespace compatibility,
+  // otherwise the nested PostgreSQL SELECT ... WHERE EXISTS forms can leak to
+  // Db2 for i and fail with SQL0199.
+  if (/\bhas_table_privilege\s*\(\s*'pgagent\.pga_job'/i.test(s)
+      && /\bhas_schema_privilege\s*\(\s*'pgagent'/i.test(s)
+      && /\bnspname\s*=\s*'pgagent'/i.test(s)) {
+    const alias = s.match(/\)\s+(?:as\s+)?(has_priviledge|has_privilege)\s+where\s+exists/i)?.[1]
+      ?? projectedAlias(s) ?? 'has_priviledge';
+    return {
+      fields: [bool(alias)],
+      rows: [[false]],
+      tag: 'SELECT 1',
+    };
+  }
+
   // pgAdmin probes whether the EDB DBMS Job Scheduler extensions are present.
   // execute_scalar() requires a numeric first row; NULL/zero-row is not safe.
   if (/\b(?:pg_catalog\.)?pg_extension\b/i.test(s)
@@ -198,6 +216,18 @@ export function pgAdminCompatibilityQuery(
     return syntheticPgSettings(s, context.currentSchema);
   }
 
+  // More general PostgreSQL privilege probes are backend metadata operations.
+  // All exact database/schema/table contracts have already had a chance to
+  // answer above. Any remaining privilege probe is conservatively FALSE and
+  // never sent to the IBM i service profile.
+  if (/\bhas_(?:table|schema|database|sequence|function|column|any_column)_privilege\s*\(/i.test(s)) {
+    return {
+      fields: [bool(projectedAlias(s) ?? 'has_privilege')],
+      rows: [[false]],
+      tag: 'SELECT 1',
+    };
+  }
+
   // Dashboard and PostgreSQL monitoring relations do not have equivalent
   // semantics on IBM i. Empty result sets are preferable to invented metrics,
   // and crucially prevent these objects from leaking into Db2 SQL.
@@ -237,6 +267,7 @@ export function containsUnhandledPostgresSystemSql(sql: string): boolean {
   // remaining pg_* token is allowed to leak into Db2 for i.
   if (/\bpg_[a-z0-9_]+\b/i.test(withoutMappedRelations)) return true;
   if (/\binet_server_(?:addr|port)\s*\(/i.test(withoutMappedRelations)) return true;
+  if (/\bhas_(?:table|schema|database|sequence|function|column|any_column)_privilege\s*\(/i.test(withoutMappedRelations)) return true;
   return false;
 }
 
@@ -696,7 +727,7 @@ function evaluateBuiltinExpression(
     return { field: int4(alias ?? 'inet_server_port'), value: context.serverPort ?? 5432 };
   }
   if (/^version\s*\(\s*\)$/i.test(core)) {
-    return { field: text(alias ?? 'version'), value: 'PostgreSQL 14.0 compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.9)' };
+    return { field: text(alias ?? 'version'), value: 'PostgreSQL 14.0 compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.10)' };
   }
   const setting = core.match(/^(?:pg_catalog\.)?current_setting\s*\(\s*'([^']+)'(?:\s*,\s*(?:true|false))?\s*\)$/i);
   if (setting) {

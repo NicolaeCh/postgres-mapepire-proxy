@@ -16,6 +16,18 @@ export interface PgAdminIbmiTableContext {
   user: string;
 }
 
+/**
+ * Live IBM i catalog query used by the pgAdmin Tables adapter. FILE_TYPE='D'
+ * includes data files and SQL tables while excluding source physical files.
+ */
+export const IBMI_TABLE_CATALOG_SQL = `SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_OWNER, TABLE_TYPE,
+       TABLE_TEXT, LONG_COMMENT, COLUMN_COUNT
+  FROM QSYS2.SYSTABLES
+ WHERE TABLE_SCHEMA = ?
+   AND TABLE_TYPE IN ('T', 'P')
+   AND FILE_TYPE = 'D'
+ ORDER BY TABLE_NAME`;
+
 export type PgAdminIbmiTableRequest =
   | { kind: 'count'; schemaOid?: number; schemaName?: string }
   | { kind: 'exists'; schemaOid?: number; schemaName?: string }

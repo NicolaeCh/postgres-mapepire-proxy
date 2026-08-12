@@ -157,6 +157,10 @@ node scripts/verify-pgadmin-schema.mjs
 
 These verify the exact aliases/cardinality that pgAdmin dereferences and the IBM i-backed schema contract.
 
+## 0.1.10 table discovery / pgAgent initialization
+
+pgAdmin issues a PostgreSQL-specific pgAgent capability query during database initialization. The proxy answers it locally as false. The IBM i table catalog adapter uses `QSYS2.SYSTABLES` with `TABLE_TYPE IN ('T','P') AND FILE_TYPE='D'`, and logs the table request kind, requested/resolved schema and row count at DEBUG level. Legacy schema OIDs from earlier proxy revisions are accepted for browser refresh compatibility.
+
 ## 0.1.9 table browser contract
 
 pgAdmin's Tables collection is backed by live `QSYS2.SYSTABLES` data instead of the generic virtual `pg_class` rewrite. The adapter handles pgAdmin 9.17 table count, node, property, table-name/OID, and schema-for-table queries with stable synthetic OIDs. PostgreSQL-only trigger, inheritance, toast, replication and storage properties are returned conservatively as zero/false/null where they have no IBM i equivalent.

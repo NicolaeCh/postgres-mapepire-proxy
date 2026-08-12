@@ -26,6 +26,17 @@ describe('pgAdmin 9.17 compatibility contract', () => {
     expect(r.rows).toEqual([[16384, 'postgres', true, 'UTF8', true, false]]);
   });
 
+  it('answers pgAgent capability probe locally as false', () => {
+    const r = pgAdminCompatibilityQuery(`SELECT
+      has_table_privilege('pgagent.pga_job', 'INSERT, SELECT, UPDATE') has_priviledge
+      WHERE EXISTS(SELECT has_schema_privilege('pgagent', 'USAGE')
+        WHERE EXISTS(SELECT cl.oid FROM pg_catalog.pg_class cl
+          LEFT JOIN pg_catalog.pg_namespace ns ON ns.oid=relnamespace
+          WHERE relname='pga_job' AND nspname='pgagent'))`, ctx)!;
+    expect(r.fields.map((f) => f.name)).toEqual(['has_priviledge']);
+    expect(r.rows).toEqual([[false]]);
+  });
+
   it('answers pg_stat_gssapi initialization probe', () => {
     const r = pgAdminCompatibilityQuery(`
       SELECT gss_authenticated, encrypted

@@ -68,6 +68,12 @@ Decision: 5.4.0. It is used as a secondary classifier, not as a complete Postgre
 - IBM Db2 for i `QSYS2.SYSSCHEMAS`: live schema names/owners/text.
 - IBM Db2 for i `CREATE SCHEMA`: service-profile ownership/authorization semantics.
 
+## Sources added for 0.1.10
+
+- pgAdmin 9.17 table collection `count.sql` and `nodes.sql` templates.
+- pgAdmin project issue #7138 showing the pgAgent capability query executed with `has_table_privilege`, `has_schema_privilege`, and nested `WHERE EXISTS`.
+- IBM i `QSYS2.SYSTABLES` documentation for `TABLE_TYPE` and `FILE_TYPE` values.
+
 ## Sources added for 0.1.9
 
 - pgAdmin 4 REL-9_17 table `count.sql`, `nodes.sql`, `properties.sql`, `get_schema_oid.sql`, `get_table.sql`, and table view implementation.

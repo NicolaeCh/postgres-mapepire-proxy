@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyPgAdminIbmiTableQuery,
+  IBMI_TABLE_CATALOG_SQL,
   renderPgAdminIbmiTableQuery,
   tableOid,
 } from '../src/sql/pgadmin-ibmi-table.js';
-import { schemaOid } from '../src/sql/pgadmin-ibmi.js';
+import { schemaOid, legacySchemaOid, findSchemaByCompatibleOid } from '../src/sql/pgadmin-ibmi.js';
 
 const scid = schemaOid('MONAI');
 const tables = [
@@ -19,6 +20,18 @@ const run = (sql: string) => {
 };
 
 describe('pgAdmin IBM i table browser contract', () => {
+  it('uses the documented QSYS2.SYSTABLES file-type filter and supports legacy schema OIDs', () => {
+    expect(IBMI_TABLE_CATALOG_SQL).toContain("FILE_TYPE = 'D'");
+    expect(IBMI_TABLE_CATALOG_SQL).not.toContain('SYSTEM_TABLE_TYPE');
+    const schemas = [
+      { name: 'AAA', owner: 'MAPESVC', text: null },
+      { name: 'MONAI', owner: 'MAPESVC', text: null },
+      { name: 'ZZZ', owner: 'MAPESVC', text: null },
+    ];
+    expect(findSchemaByCompatibleOid(schemas, schemaOid('MONAI'))?.name).toBe('MONAI');
+    expect(findSchemaByCompatibleOid(schemas, legacySchemaOid(schemas, 'MONAI')!)?.name).toBe('MONAI');
+  });
+
   it('answers the exact table collection count contract', () => {
     const result = run(`SELECT COUNT(*) FROM pg_catalog.pg_class rel
       WHERE rel.relkind IN ('r','s','t','p') AND rel.relnamespace = ${scid}::oid

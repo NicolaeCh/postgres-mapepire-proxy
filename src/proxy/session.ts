@@ -23,11 +23,13 @@ import {
   planPgCreateSchema,
   renderPgAdminIbmiSchemaQuery,
   schemaOid as schemaOidForSession,
+  findSchemaByCompatibleOid,
   type CreateSchemaPlan,
   type IbmiSchemaRow,
 } from '../sql/pgadmin-ibmi.js';
 import {
   classifyPgAdminIbmiTableQuery,
+  IBMI_TABLE_CATALOG_SQL,
   isBasicPgTableCommentDdl,
   isPgCreateTable,
   parsePgTableOwnerDdl,
@@ -499,13 +501,29 @@ export class ProxySession {
       const schema = tableRequest.schemaName !== undefined
         ? schemas.find((row) => sameSqlIdentifier(row.name, tableRequest.schemaName!))
         : tableRequest.schemaOid !== undefined
-          ? schemas.find((row) => schemaOidForSession(row.name) === tableRequest.schemaOid)
+          ? findSchemaByCompatibleOid(schemas, tableRequest.schemaOid)
           : undefined;
 
       const tables = schema ? await this.fetchIbmiTables(schema.name) : [];
       const resolvedSchemaOid = schema
         ? schemaOidForSession(schema.name)
         : (tableRequest.schemaOid ?? 0);
+
+      this.logger.debug('pgAdmin IBM i table catalog request', {
+        kind: tableRequest.kind,
+        requestedSchemaOid: tableRequest.schemaOid,
+        requestedSchemaName: tableRequest.schemaName,
+        resolvedSchema: schema?.name,
+        tableCount: tables.length,
+      });
+      if (!schema && (tableRequest.schemaOid !== undefined || tableRequest.schemaName !== undefined)) {
+        this.logger.warn('pgAdmin table catalog schema could not be resolved', {
+          requestedSchemaOid: tableRequest.schemaOid,
+          requestedSchemaName: tableRequest.schemaName,
+          currentSchema: this.currentSchema,
+        });
+      }
+
       return renderPgAdminIbmiTableQuery(tableRequest, tables, resolvedSchemaOid, {
         user: this.client.user ?? config.pg.user ?? 'proxy',
       });
@@ -551,18 +569,21 @@ export class ProxySession {
     // query uncached so a table created through pgAdmin is visible on the next
     // browser refresh without waiting for a TTL.  T/P cover SQL tables and
     // physical data files; source physical files are excluded.
-    const result = await this.executePaged(
-      `SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_OWNER, TABLE_TYPE,
-              TABLE_TEXT, LONG_COMMENT, COLUMN_COUNT
-         FROM QSYS2.SYSTABLES
-        WHERE TABLE_SCHEMA = ?
-          AND TABLE_TYPE IN ('T', 'P')
-          AND (SYSTEM_TABLE_TYPE IS NULL OR SYSTEM_TABLE_TYPE <> 'S')
-        ORDER BY TABLE_NAME`,
-      [schemaName],
-      0,
-    );
-    if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+    let result: QueryResult<Record<string, unknown>>;
+    try {
+      result = await this.executePaged(
+        IBMI_TABLE_CATALOG_SQL,
+        [schemaName],
+        0,
+      );
+      if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+    } catch (error) {
+      this.logger.warn('IBM i table catalog query failed', {
+        schema: schemaName,
+        error: String((error as Error)?.message ?? error),
+      });
+      throw error;
+    }
 
     return result.data.map((row: Record<string, unknown>) => ({
       schema: String(caseInsensitiveValue(row, 'TABLE_SCHEMA') ?? '').trim(),

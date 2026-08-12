@@ -1,3 +1,12 @@
+## 0.1.10 - 2026-08-12
+
+- Virtualize pgAdmin's pgAgent capability probe and return `has_priviledge=false` locally.
+- Prevent PostgreSQL `has_*_privilege` metadata functions from leaking to Db2 for i.
+- Correct live table discovery to use documented `QSYS2.SYSTABLES.FILE_TYPE='D'` with `TABLE_TYPE IN ('T','P')`.
+- Support legacy pre-0.1.8 row-number schema OIDs in addition to stable schema OIDs.
+- Add DEBUG diagnostics for pgAdmin table catalog request kind, schema resolution and table count.
+- Add regression checks for the exact pgAgent query and IBM i catalog filter.
+
 ## 0.1.9 - 2026-08-11
 
 - Added live IBM i-backed pgAdmin Tables collection using `QSYS2.SYSTABLES`.

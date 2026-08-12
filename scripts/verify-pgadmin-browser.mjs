@@ -23,6 +23,24 @@ assert.equal(dash.rows.length, 1);
 assert.equal(dash.rows[0][0], 'session_stats');
 assert.deepEqual(JSON.parse(dash.rows[0][1]), { Total: 0, Active: 0, Idle: 0 });
 
+// pgAgent capability check runs during pgAdmin database initialization.
+// IBM i has no pgAgent extension, so it must be answered locally as FALSE and
+// must never reach Db2 (where the nested SELECT ... WHERE EXISTS is invalid).
+const pgagent = local(`SELECT
+    has_table_privilege(
+      'pgagent.pga_job', 'INSERT, SELECT, UPDATE'
+    ) has_priviledge
+WHERE EXISTS(
+    SELECT has_schema_privilege('pgagent', 'USAGE')
+    WHERE EXISTS(
+        SELECT cl.oid FROM pg_catalog.pg_class cl
+        LEFT JOIN pg_catalog.pg_namespace ns ON ns.oid=relnamespace
+        WHERE relname='pga_job' AND nspname='pgagent'
+    )
+)`);
+assert.deepEqual(pgagent.fields.map((f) => f.name), ['has_priviledge']);
+assert.deepEqual(pgagent.rows, [[false]]);
+
 // DBMS scheduler feature probe must be a scalar zero, never NULL.
 const scheduler = local(`SELECT COUNT(*) FROM pg_catalog.pg_extension
 WHERE extname IN ('edb_job_scheduler', 'dbms_scheduler')`);

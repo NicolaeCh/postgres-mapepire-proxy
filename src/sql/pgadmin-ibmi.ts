@@ -187,6 +187,20 @@ export function schemaOid(name: string): number {
   return 100_000 + (hash % 2_000_000_000);
 }
 
+/** Legacy row-number OID emitted by the pre-0.1.8 pg_namespace translator. */
+export function legacySchemaOid(rows: IbmiSchemaRow[], name: string): number | undefined {
+  const ordered = [...rows].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  const index = ordered.findIndex((row) => sameIdentifier(row.name, name));
+  return index >= 0 ? 50_001 + index : undefined;
+}
+
+/** Resolve both current stable OIDs and legacy browser-node OIDs. */
+export function findSchemaByCompatibleOid(rows: IbmiSchemaRow[], oid: number): IbmiSchemaRow | undefined {
+  const stable = rows.find((row) => schemaOid(row.name) === oid);
+  if (stable) return stable;
+  return rows.find((row) => legacySchemaOid(rows, row.name) === oid);
+}
+
 export interface CreateSchemaPlan {
   schemaName: string;
   db2Sql: string;

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import {
   classifyPgAdminIbmiTableQuery,
+  IBMI_TABLE_CATALOG_SQL,
   renderPgAdminIbmiTableQuery,
   tableOid,
   parsePgTableOwnerDdl,
 } from '../dist/src/sql/pgadmin-ibmi-table.js';
-import { schemaOid } from '../dist/src/sql/pgadmin-ibmi.js';
+import { schemaOid, legacySchemaOid, findSchemaByCompatibleOid } from '../dist/src/sql/pgadmin-ibmi.js';
 
 const scid = schemaOid('MONAI');
 const tables = [
@@ -13,6 +14,17 @@ const tables = [
   { schema: 'MONAI', name: 'ORDERS', owner: 'MAPESVC', type: 'T', text: null, longComment: 'Orders table', columnCount: 8 },
 ];
 const ctx = { user: 'nicolae' };
+const schemas = [
+  { name: 'AAA', owner: 'MAPESVC', text: null },
+  { name: 'MONAI', owner: 'MAPESVC', text: null },
+  { name: 'ZZZ', owner: 'MAPESVC', text: null },
+];
+assert.match(IBMI_TABLE_CATALOG_SQL, /TABLE_TYPE IN \('T', 'P'\)/);
+assert.match(IBMI_TABLE_CATALOG_SQL, /FILE_TYPE = 'D'/);
+assert.doesNotMatch(IBMI_TABLE_CATALOG_SQL, /SYSTEM_TABLE_TYPE/);
+assert.equal(findSchemaByCompatibleOid(schemas, schemaOid('MONAI'))?.name, 'MONAI');
+assert.equal(findSchemaByCompatibleOid(schemas, legacySchemaOid(schemas, 'MONAI'))?.name, 'MONAI');
+
 const run = (sql) => {
   const req = classifyPgAdminIbmiTableQuery(sql);
   assert.ok(req, `Expected live IBM i table contract for: ${sql}`);
