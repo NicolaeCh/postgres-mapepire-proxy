@@ -26,7 +26,7 @@ export function environmentQuery(sql: string, database: string, currentSchema: s
   if (/^show\s+timezone$/i.test(compact)) return oneText('TimeZone', 'UTC');
   if (/^show\s+datestyle$/i.test(compact)) return oneText('DateStyle', 'ISO, MDY');
   if (/^show\s+default_transaction_read_only$/i.test(compact)) return oneText('default_transaction_read_only', 'off');
-  if (/^select\s+version\(\)/i.test(compact)) return oneText('version', 'PostgreSQL 14.0 compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.10)');
+  if (/^select\s+version\(\)/i.test(compact)) return oneText('version', 'PostgreSQL 14.0 compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.11)');
   if (/^select\s+current_database\(\)/i.test(compact)) return oneText('current_database', database || 'ibmi');
   if (/^select\s+current_schema\(\)(?:\s+as\s+([a-z_][a-z0-9_$]*))?$/i.test(compact)) {
     const alias = compact.match(/\s+as\s+([a-z_][a-z0-9_$]*)$/i)?.[1] ?? 'current_schema';

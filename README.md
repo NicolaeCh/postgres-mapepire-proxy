@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.10 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.10
+podman build -t postgres-mapepire-proxy:0.1.11 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.11
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -89,9 +89,9 @@ This is intentionally a **compatibility proxy**, not an implementation of the Po
 `SAVEPOINT`/`ROLLBACK TO SAVEPOINT`, PostgreSQL `CancelRequest`, binary result format and full PostgreSQL catalog emulation are not implemented. Common client `SET statement_timeout`/`lock_timeout` initialization commands are accepted as no-ops; they do not cancel IBM i work. See `docs/COMPATIBILITY.md`.
 
 
-## pgAdmin table discovery reliability (0.1.10)
+## pgAdmin table discovery reliability (0.1.11)
 
-Release 0.1.10 fixes the remaining pgAdmin database-initialization and Tables-tree issues observed after 0.1.9:
+Release 0.1.11 fixes the remaining pgAdmin database-initialization and Tables-tree issues observed after 0.1.9:
 
 - pgAdmin's pgAgent capability probe (`has_table_privilege` / nested `WHERE EXISTS`) is answered locally as `false` and never sent to Db2 for i.
 - The live IBM i Tables catalog now uses the documented `QSYS2.SYSTABLES.FILE_TYPE = 'D'` filter with `TABLE_TYPE IN ('T','P')`, excluding source physical files without relying on a non-portable catalog column.

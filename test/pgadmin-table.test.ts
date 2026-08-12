@@ -101,4 +101,35 @@ describe('pgAdmin IBM i table browser contract', () => {
       WHERE rel.relnamespace = ${scid}::oid AND rel.relname = 'ORDERS'`);
     expect(byName.rows).toEqual([[oid]]);
   });
+  it('does not confuse nested pg_catalog nspname predicates with the target table schema', () => {
+    const req = classifyPgAdminIbmiTableQuery(`SELECT rel.oid, rel.relname AS name,
+      (SELECT count(*) FROM pg_catalog.pg_trigger WHERE tgrelid=rel.oid AND tgisinternal = FALSE) AS triggercount,
+      (SELECT count(*) FROM pg_catalog.pg_trigger WHERE tgrelid=rel.oid AND tgisinternal = FALSE AND tgenabled = 'O') AS has_enable_triggers,
+      false AS is_partitioned,
+      (SELECT count(1) FROM pg_catalog.pg_inherits WHERE inhrelid=rel.oid LIMIT 1) AS is_inherits,
+      (SELECT count(1) FROM pg_catalog.pg_inherits WHERE inhparent=rel.oid LIMIT 1) AS is_inherited,
+      des.description
+      FROM pg_catalog.pg_class rel
+      LEFT JOIN pg_catalog.pg_description des ON des.objoid=rel.oid
+      WHERE rel.relnamespace = ${scid}::oid
+        AND rel.relkind IN ('r','s','t','p')
+        AND NOT rel.relispartition
+        AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n WHERE n.nspname='pg_catalog' AND n.oid=rel.relnamespace)`);
+    expect(req).toBeTruthy();
+    expect(req?.kind).toBe('nodes');
+    expect(req?.schemaOid).toBe(scid);
+    expect(req?.schemaName).toBeUndefined();
+  });
+
+  it('does not steal pgAdmin schema-browser SQL that references pg_class inside CATALOGS.LIST', () => {
+    const sql = `SELECT nsp.oid, nsp.nspname as name,
+      pg_catalog.has_schema_privilege(nsp.oid, 'CREATE') as can_create,
+      pg_catalog.has_schema_privilege(nsp.oid, 'USAGE') as has_usage, des.description
+      FROM pg_catalog.pg_namespace nsp
+      LEFT JOIN pg_catalog.pg_description des ON des.objoid=nsp.oid
+      WHERE NOT ((nsp.nspname = 'pg_catalog' AND EXISTS
+        (SELECT 1 FROM pg_catalog.pg_class WHERE relname = 'pg_class' AND relnamespace = nsp.oid LIMIT 1)));`;
+    expect(classifyPgAdminIbmiTableQuery(sql)).toBeUndefined();
+  });
+
 });

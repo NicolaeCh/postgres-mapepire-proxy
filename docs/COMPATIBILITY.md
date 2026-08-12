@@ -70,7 +70,7 @@ The proxy advertises PostgreSQL 14.0 by default for the tested pgAdmin 9.17 comp
 
 0.1.8 extends pgAdmin qualification from connection establishment to the database/schema browser. PostgreSQL-only dashboard/ACL/role/tablespace contracts remain virtual, while schema names and schema text are sourced from live IBM i `QSYS2.SYSSCHEMAS`. Basic schema creation from pgAdmin is supported when Comment, Privileges, Default privileges, and Security labels are left empty. The PostgreSQL `AUTHORIZATION` role is not propagated to IBM i; DDL runs under the configured Mapepire service profile.
 
-## pgAdmin Tables discovery — version 0.1.10
+## pgAdmin Tables discovery — version 0.1.11
 
 The pgAdmin Tables collection is populated from live IBM i `QSYS2.SYSTABLES` rows using `TABLE_TYPE IN ('T','P')` and `FILE_TYPE='D'`. pgAdmin's pgAgent privilege probe is virtualized as false and does not reach Db2. Table catalog requests accept current stable schema OIDs and legacy pre-0.1.8 schema OIDs.
 

@@ -98,4 +98,15 @@ assert.equal(createIf.ifNotExists, true);
 assert.equal(createIf.schemaName, 'MONAI2');
 assert.equal(createIf.db2Sql, 'CREATE SCHEMA "MONAI2"');
 
+const macroOid = schemaOid('MONAI');
+const macroReq = classifyPgAdminIbmiSchemaQuery(`SELECT CASE WHEN (nspname LIKE E'pg\\_temp\\_%') THEN 1 ELSE 3 END AS nsptyp,
+nsp.nspname AS name, nsp.oid, r.rolname AS namespaceowner, des.description
+FROM pg_catalog.pg_namespace nsp LEFT JOIN pg_catalog.pg_description des ON des.objoid=nsp.oid
+LEFT JOIN pg_catalog.pg_roles r ON r.oid=nsp.nspowner
+WHERE nsp.oid=${macroOid}::oid AND NOT ((nsp.nspname='pg_catalog' AND EXISTS
+(SELECT 1 FROM pg_catalog.pg_class WHERE relname='pg_class' AND relnamespace=nsp.oid LIMIT 1)));`);
+assert.equal(macroReq?.kind, 'properties');
+assert.equal(macroReq?.oid, macroOid);
+assert.equal(macroReq?.name, undefined);
+
 console.log('pgAdmin IBM i schema contract check OK');

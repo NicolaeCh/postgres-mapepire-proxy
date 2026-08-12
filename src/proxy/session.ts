@@ -498,24 +498,56 @@ export class ProxySession {
     const tableRequest = classifyPgAdminIbmiTableQuery(sql);
     if (tableRequest) {
       const schemas = await this.fetchIbmiSchemas();
-      const schema = tableRequest.schemaName !== undefined
-        ? schemas.find((row) => sameSqlIdentifier(row.name, tableRequest.schemaName!))
-        : tableRequest.schemaOid !== undefined
-          ? findSchemaByCompatibleOid(schemas, tableRequest.schemaOid)
+
+      // pgAdmin table templates scope the real target with
+      // relnamespace=<schema OID>.  Prefer that OID over every textual
+      // nspname predicate because catalog subqueries/macros frequently contain
+      // nspname='pg_catalog'.  Older releases did the opposite and could
+      // therefore try to resolve PG_CATALOG as an IBM i schema.
+      let schema = tableRequest.schemaOid !== undefined
+        ? findSchemaByCompatibleOid(schemas, tableRequest.schemaOid)
+        : tableRequest.schemaName !== undefined
+          ? schemas.find((row) => sameSqlIdentifier(row.name, tableRequest.schemaName!))
           : undefined;
+
+      // Defensive compatibility fallback for stale pgAdmin browser OIDs.
+      // It is intentionally limited to collection/node/property requests and
+      // only applies when CURRENT SCHEMA names a real IBM i schema.  Current
+      // stable and legacy OIDs should normally resolve before this branch.
+      if (!schema
+          && tableRequest.schemaOid !== undefined
+          && ['count', 'exists', 'nodes', 'properties'].includes(tableRequest.kind)) {
+        const current = schemas.find((row) => sameSqlIdentifier(row.name, this.currentSchema));
+        if (current) {
+          schema = current;
+          this.logger.warn('Using current IBM i schema for unresolved pgAdmin schema OID', {
+            kind: tableRequest.kind,
+            requestedSchemaOid: tableRequest.schemaOid,
+            fallbackSchema: current.name,
+          });
+        }
+      }
 
       const tables = schema ? await this.fetchIbmiTables(schema.name) : [];
       const resolvedSchemaOid = schema
         ? schemaOidForSession(schema.name)
         : (tableRequest.schemaOid ?? 0);
 
-      this.logger.debug('pgAdmin IBM i table catalog request', {
+      const catalogLog = {
         kind: tableRequest.kind,
         requestedSchemaOid: tableRequest.schemaOid,
         requestedSchemaName: tableRequest.schemaName,
         resolvedSchema: schema?.name,
         tableCount: tables.length,
-      });
+      };
+      // Count and nodes determine whether pgAdmin shows the Tables collection
+      // and which rows it renders. Keep these two events visible at INFO even
+      // when general debug logging is disabled.
+      if (tableRequest.kind === 'count' || tableRequest.kind === 'nodes') {
+        this.logger.info('pgAdmin IBM i table catalog request', catalogLog);
+      } else {
+        this.logger.debug('pgAdmin IBM i table catalog request', catalogLog);
+      }
       if (!schema && (tableRequest.schemaOid !== undefined || tableRequest.schemaName !== undefined)) {
         this.logger.warn('pgAdmin table catalog schema could not be resolved', {
           requestedSchemaOid: tableRequest.schemaOid,

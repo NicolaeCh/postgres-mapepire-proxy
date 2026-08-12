@@ -234,7 +234,7 @@ The pgAdmin adapter is split into a virtual PostgreSQL system layer and an IBM i
 
 Basic pgAdmin `CREATE SCHEMA name AUTHORIZATION role` is translated to `CREATE SCHEMA name`. The PostgreSQL role is not sent as an IBM i authorization ID because the backend identity is the configured service user. Schema comments/ACL/default privileges/security labels are not falsely emulated; a create batch containing them is rejected before any DDL executes.
 
-## pgAdmin table discovery hardening (0.1.10)
+## pgAdmin table discovery hardening (0.1.11)
 
 The Tables adapter queries live `QSYS2.SYSTABLES` with `TABLE_TYPE IN ('T','P')` and `FILE_TYPE='D'`. PostgreSQL pgAgent/privilege probes are handled inside the Virtual PostgreSQL System Layer. Schema resolution accepts both stable hashed OIDs and legacy row-number OIDs so pgAdmin refreshes cannot silently hide a collection after a proxy upgrade.
 

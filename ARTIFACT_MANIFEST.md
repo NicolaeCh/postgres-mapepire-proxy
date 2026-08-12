@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.10 reference implementation**
+Version: **0.1.11 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.10 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.10.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.11.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 
@@ -44,7 +44,7 @@ See `docs/VALIDATION.md`. This build environment could not resolve npm packages 
 
 `src/sql/pgadmin-ibmi.ts` provides the IBM i-backed pgAdmin schema contract using live `QSYS2.SYSSCHEMAS` rows and stable proxy OIDs. `src/sql/pgadmin.ts` adds exact dashboard/database/role/tablespace response shapes. `CREATE SCHEMA ... AUTHORIZATION ...` is mapped to service-user IBM i DDL, and the no-FROM translator now inserts `SYSIBM.SYSDUMMY1` before `WHERE/GROUP/HAVING/ORDER/OFFSET/FETCH`. The image build adds `verify-pgadmin-browser.mjs` and `verify-pgadmin-schema.mjs`.
 
-### 0.1.10 pgAdmin table discovery reliability
+### 0.1.11 pgAdmin table discovery reliability
 
 - pgAgent capability probe is virtualized locally as false.
 - QSYS2.SYSTABLES uses `FILE_TYPE='D'` with `TABLE_TYPE IN ('T','P')`.

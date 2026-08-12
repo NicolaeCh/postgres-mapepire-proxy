@@ -55,7 +55,15 @@ export function classifyPgAdminIbmiTableQuery(sql: string): PgAdminIbmiTableRequ
   if (!/\b(?:pg_catalog\.)?pg_class\b/i.test(s)) return undefined;
 
   const schemaOid = extractSchemaOid(s);
-  const schemaName = extractSchemaName(s);
+  // IMPORTANT: pgAdmin templates contain nested pg_namespace predicates and
+  // catalog macros such as nspname='pg_catalog'.  Those predicates describe
+  // PostgreSQL internals and are NOT the target schema of the table request.
+  // Collection/nodes/properties requests are scoped by relnamespace=<scid>,
+  // so only name-based lookup requests are allowed to use nspname.
+  const extractedSchemaName = extractSchemaName(s);
+  const schemaName = extractedSchemaName && !isPostgresSystemSchemaName(extractedSchemaName)
+    ? extractedSchemaName
+    : undefined;
   const tableOidValue = extractTableOid(s);
   const tableName = extractTableName(s);
 
@@ -63,14 +71,14 @@ export function classifyPgAdminIbmiTableQuery(sql: string): PgAdminIbmiTableRequ
   if (/^select\s+count\s*\(\s*\*\s*\)/i.test(s)
       && /\brelkind\s+in\s*\(/i.test(s)
       && /\brelnamespace\b/i.test(s)) {
-    return { kind: 'count', schemaOid, schemaName };
+    return { kind: 'count', schemaOid };
   }
 
   // Some pgAdmin/driver feature paths use an EXISTS form for the same test.
   if (/^select\s+exists\s*\(/i.test(s)
       && /\brelkind\s+in\s*\(/i.test(s)
       && /\brelnamespace\b/i.test(s)) {
-    return { kind: 'exists', schemaOid, schemaName };
+    return { kind: 'exists', schemaOid };
   }
 
   // REL-9_17 tables/sql/default/nodes.sql exact shape.
@@ -78,7 +86,7 @@ export function classifyPgAdminIbmiTableQuery(sql: string): PgAdminIbmiTableRequ
       && /\bhas_enable_triggers\b/i.test(s)
       && /\bis_inherits\b/i.test(s)
       && /\bis_inherited\b/i.test(s)) {
-    return { kind: 'nodes', schemaOid, schemaName, tableOid: tableOidValue };
+    return { kind: 'nodes', schemaOid, tableOid: tableOidValue };
   }
 
   // REL-9_17 properties.sql contains this distinctive property set and an
@@ -87,9 +95,18 @@ export function classifyPgAdminIbmiTableQuery(sql: string): PgAdminIbmiTableRequ
       && /\brelacl_str\b/i.test(s)
       && /\bhastoasttable\b/i.test(s)) {
     return {
-      kind: 'properties', schemaOid, schemaName, tableOid: tableOidValue,
+      kind: 'properties', schemaOid, tableOid: tableOidValue,
       includePartitionScheme: /\bpartition_scheme\b/i.test(s),
     };
+  }
+
+  // pgAdmin schema-browser SQL imports catalog macros which themselves
+  // reference pg_class (for example CATALOGS.LIST).  Such statements are
+  // primarily FROM pg_namespace and must be left to the schema adapter.
+  // Without this guard they can look like table OID lookups because the macro
+  // contains relname='pg_class' and nspname='pg_catalog'.
+  if (/\bfrom\s+(?:pg_catalog\.)?pg_namespace\s+(?:as\s+)?[a-z_][a-z0-9_$]*\b/i.test(s)) {
+    return undefined;
   }
 
   // get_schema_oid.sql, used after CREATE TABLE and during object refresh.
@@ -104,8 +121,9 @@ export function classifyPgAdminIbmiTableQuery(sql: string): PgAdminIbmiTableRequ
 
   // OID lookup after CREATE TABLE.  Keep this deliberately narrow so normal
   // application pg_class compatibility requests still use their own path.
-  if (/^select\s+(?:[a-z_][a-z0-9_$]*\.)?oid\b/i.test(s)
+  if (/^select\s+(?:rel|c)\s*\.\s*oid\b/i.test(s)
       && tableName !== undefined
+      && /\bfrom\s+(?:pg_catalog\.)?pg_class\s+(?:as\s+)?(?:rel|c)\b/i.test(s)
       && /\brelnamespace\b/i.test(s)) {
     return { kind: 'oidByName', schemaOid, schemaName, tableName };
   }
@@ -296,6 +314,12 @@ function extractTableName(sql: string): string | undefined {
 function extractSchemaName(sql: string): string | undefined {
   const m = sql.match(/\bnspname\s*=\s*'((?:''|[^'])*)'/i);
   return m?.[1]?.replaceAll("''", "'");
+}
+
+function isPostgresSystemSchemaName(name: string): boolean {
+  const n = name.toLowerCase();
+  return n === 'pg_catalog' || n === 'information_schema'
+    || n.startsWith('pg_toast') || n.startsWith('pg_temp_');
 }
 
 function sameIdentifier(a: string, b: string): boolean {

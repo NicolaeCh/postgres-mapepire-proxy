@@ -1,4 +1,4 @@
-## 0.1.10 - 2026-08-12
+## 0.1.11 - 2026-08-12
 
 - Virtualize pgAdmin's pgAgent capability probe and return `has_priviledge=false` locally.
 - Prevent PostgreSQL `has_*_privilege` metadata functions from leaking to Db2 for i.

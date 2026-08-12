@@ -78,4 +78,21 @@ describe('pgAdmin IBM i-backed schema browser contract', () => {
       requestedAuthorization: 'NICOLAE',
     });
   });
+  it('does not treat CATALOGS.LIST pg_catalog predicates as the selected schema', () => {
+    const oid = schemaOid('MONAI');
+    const sql = `SELECT CASE WHEN (nspname LIKE E'pg\\_temp\\_%') THEN 1 ELSE 3 END AS nsptyp,
+      nsp.nspname AS name, nsp.oid, r.rolname AS namespaceowner, des.description
+      FROM pg_catalog.pg_namespace nsp
+      LEFT JOIN pg_catalog.pg_description des ON des.objoid=nsp.oid
+      LEFT JOIN pg_catalog.pg_roles r ON r.oid=nsp.nspowner
+      WHERE nsp.oid=${oid}::oid AND NOT ((nsp.nspname = 'pg_catalog' AND EXISTS
+        (SELECT 1 FROM pg_catalog.pg_class WHERE relname='pg_class' AND relnamespace=nsp.oid LIMIT 1)));`;
+    const req = classifyPgAdminIbmiSchemaQuery(sql);
+    expect(req?.kind).toBe('properties');
+    if (req?.kind === 'properties') {
+      expect(req.oid).toBe(oid);
+      expect(req.name).toBeUndefined();
+    }
+  });
+
 });

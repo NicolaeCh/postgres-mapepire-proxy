@@ -49,10 +49,14 @@ export function classifyPgAdminIbmiSchemaQuery(sql: string): PgAdminIbmiSchemaRe
   }
 
   if (/\bnsptyp\b/i.test(s) && /\bnamespaceowner\b/i.test(s)) {
+    const oid = extractOidPredicate(s);
+    // properties.sql imports CATALOGS.LIST, whose nested predicates include
+    // nspname='pg_catalog'.  When pgAdmin supplies scid, that numeric OID is
+    // authoritative; never let a macro predicate override it.
     return {
       kind: 'properties',
-      oid: extractOidPredicate(s),
-      name: extractNamePredicate(s),
+      oid,
+      name: oid === undefined ? extractNamePredicate(s) : undefined,
     };
   }
 
@@ -116,10 +120,10 @@ export function renderPgAdminIbmiSchemaQuery(
     ? findByName(allSchemas, request.name)
     : request.kind === 'nameByOid' || request.kind === 'isCatalog'
       ? findByOid(allSchemas, request.oid)
-      : request.kind === 'properties' && request.name !== undefined
-        ? findByName(allSchemas, request.name)
-        : request.kind === 'properties' && request.oid !== undefined
-          ? findByOid(allSchemas, request.oid)
+      : request.kind === 'properties' && request.oid !== undefined
+        ? findByOid(allSchemas, request.oid)
+        : request.kind === 'properties' && request.name !== undefined
+          ? findByName(allSchemas, request.name)
           : undefined;
 
   if (request.kind === 'oidByName') {

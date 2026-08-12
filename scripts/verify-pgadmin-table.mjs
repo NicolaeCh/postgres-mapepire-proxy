@@ -92,4 +92,30 @@ assert.deepEqual(name.rows, [['ORDERS']]);
 const owner = parsePgTableOwnerDdl('ALTER TABLE IF EXISTS "MONAI"."ORDERS" OWNER TO "nicolae";');
 assert.deepEqual(owner, { table: '"MONAI"."ORDERS"', requestedOwner: 'nicolae' });
 
+
+const contaminated = classifyPgAdminIbmiTableQuery(`SELECT rel.oid, rel.relname AS name,
+(SELECT count(*) FROM pg_catalog.pg_trigger WHERE tgrelid=rel.oid AND tgisinternal = FALSE) AS triggercount,
+(SELECT count(*) FROM pg_catalog.pg_trigger WHERE tgrelid=rel.oid AND tgisinternal = FALSE AND tgenabled = 'O') AS has_enable_triggers,
+false AS is_partitioned,
+(SELECT count(1) FROM pg_catalog.pg_inherits WHERE inhrelid=rel.oid LIMIT 1) AS is_inherits,
+(SELECT count(1) FROM pg_catalog.pg_inherits WHERE inhparent=rel.oid LIMIT 1) AS is_inherited,
+des.description FROM pg_catalog.pg_class rel
+LEFT JOIN pg_catalog.pg_description des ON des.objoid=rel.oid
+WHERE rel.relnamespace = ${scid}::oid AND rel.relkind IN ('r','s','t','p')
+AND NOT rel.relispartition
+AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n WHERE n.nspname='pg_catalog' AND n.oid=rel.relnamespace)`);
+assert.ok(contaminated);
+assert.equal(contaminated.kind, 'nodes');
+assert.equal(contaminated.schemaOid, scid);
+assert.equal(contaminated.schemaName, undefined);
+
+const schemaBrowserSql = `SELECT nsp.oid, nsp.nspname as name,
+pg_catalog.has_schema_privilege(nsp.oid, 'CREATE') as can_create,
+pg_catalog.has_schema_privilege(nsp.oid, 'USAGE') as has_usage, des.description
+FROM pg_catalog.pg_namespace nsp
+LEFT JOIN pg_catalog.pg_description des ON des.objoid=nsp.oid
+WHERE NOT ((nsp.nspname = 'pg_catalog' AND EXISTS
+(SELECT 1 FROM pg_catalog.pg_class WHERE relname='pg_class' AND relnamespace=nsp.oid LIMIT 1)));`;
+assert.equal(classifyPgAdminIbmiTableQuery(schemaBrowserSql), undefined, 'schema browser SQL must not be stolen by table classifier');
+
 console.log('pgAdmin IBM i table browser contract check OK');
