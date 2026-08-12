@@ -51,8 +51,10 @@ export const IBMI_INDEX_CATALOG_SQL = `SELECT INDEX_SCHEMA, INDEX_NAME, INDEX_OW
  ORDER BY INDEX_NAME`;
 
 export type PgAdminTableChildRequest =
+  | { kind: 'columnCount'; tableOid: number }
   | { kind: 'columnNodes'; tableOid: number; columnNumber?: number }
   | { kind: 'columnProperties'; tableOid: number; columnNumber?: number }
+  | { kind: 'indexCount'; tableOid: number }
   | { kind: 'indexNodes'; tableOid: number; indexOid?: number }
   | { kind: 'indexProperties'; tableOid: number; indexOid?: number }
   | { kind: 'partitionNodes'; tableOid: number }
@@ -80,6 +82,11 @@ export function classifyPgAdminTableChildQuery(sql: string): PgAdminTableChildRe
       /\battrelid\s*=\s*'?([0-9]+)'?(?:::\s*oid)?/i,
     ]);
     if (tableOid !== undefined) {
+      // PGChildModule.has_nodes() executes count.sql before pgAdmin creates the
+      // Columns collection in the tree.  This request must return a scalar
+      // count, not an empty generic pg_catalog result.
+      if (/^select\s+count\s*\(/i.test(s)) return { kind: 'columnCount', tableOid };
+
       const columnNumber = extractNumeric(s, [
         /\batt\s*\.\s*attnum\s*=\s*'?([0-9]+)'?/i,
         /\battnum\s*=\s*'?([0-9]+)'?/i,
@@ -87,10 +94,11 @@ export function classifyPgAdminTableChildQuery(sql: string): PgAdminTableChildRe
       if (/\battidentity\b/i.test(s) || /\bis_view_only\b/i.test(s) || /\bcolconstype\b/i.test(s)) {
         return { kind: 'columnProperties', tableOid, columnNumber };
       }
-      // REL-9_17 columns nodes.sql has format_type(), displaytypname and seqtypid.
-      if (/\bformat_type\s*\(/i.test(s) || /\bdisplaytypname\b/i.test(s) || /\bseqtypid\b/i.test(s)) {
-        return { kind: 'columnNodes', tableOid, columnNumber };
-      }
+      // Once scoped to a concrete parent OID, remaining pg_attribute browser
+      // reads are column-node requests.  Keeping this broad also covers minor
+      // pgAdmin template changes across supported PostgreSQL compatibility
+      // versions.
+      return { kind: 'columnNodes', tableOid, columnNumber };
     }
   }
 
@@ -100,6 +108,10 @@ export function classifyPgAdminTableChildQuery(sql: string): PgAdminTableChildRe
       /\bidx\s*\.\s*indrelid\s*=\s*'?([0-9]+)'?(?:::\s*oid)?/i,
     ]);
     if (tableOid !== undefined) {
+      // IndexesModule is also hidden until its count.sql/has_nodes() request
+      // returns a non-zero scalar.
+      if (/^select\s+count\s*\(/i.test(s)) return { kind: 'indexCount', tableOid };
+
       const indexOid = extractNumeric(s, [
         /\bcls\s*\.\s*oid\s*=\s*'?([0-9]+)'?(?:::\s*oid)?/i,
         /\bindexrelid\s*=\s*'?([0-9]+)'?(?:::\s*oid)?/i,
@@ -148,7 +160,10 @@ export function classifyPgAdminTableChildQuery(sql: string): PgAdminTableChildRe
   return undefined;
 }
 
-export function renderColumnQuery(request: Extract<PgAdminTableChildRequest, {kind: 'columnNodes' | 'columnProperties'}>, rows: IbmiColumnRow[]): SyntheticResult {
+export function renderColumnQuery(request: Extract<PgAdminTableChildRequest, {kind: 'columnCount' | 'columnNodes' | 'columnProperties'}>, rows: IbmiColumnRow[]): SyntheticResult {
+  if (request.kind === 'columnCount') {
+    return { fields: [int8('count')], rows: [[rows.length]], tag: 'SELECT 1' };
+  }
   const selected = request.columnNumber === undefined ? rows : rows.filter((r) => r.ordinal === request.columnNumber);
   if (request.kind === 'columnNodes') {
     return {
@@ -183,7 +198,10 @@ export function renderColumnQuery(request: Extract<PgAdminTableChildRequest, {ki
   };
 }
 
-export function renderIndexQuery(request: Extract<PgAdminTableChildRequest, {kind: 'indexNodes' | 'indexProperties'}>, rows: IbmiIndexRow[], tableOidValue: number): SyntheticResult {
+export function renderIndexQuery(request: Extract<PgAdminTableChildRequest, {kind: 'indexCount' | 'indexNodes' | 'indexProperties'}>, rows: IbmiIndexRow[], tableOidValue: number): SyntheticResult {
+  if (request.kind === 'indexCount') {
+    return { fields: [int8('count')], rows: [[rows.length]], tag: 'SELECT 1' };
+  }
   const selected = request.indexOid === undefined ? rows : rows.filter((r) => indexOid(r.schema, r.table, r.name) === request.indexOid);
   if (request.kind === 'indexNodes') {
     return {

@@ -32,6 +32,20 @@ result = renderIndexQuery(req,indexes,tid);
 assert.deepEqual(result.fields.map((f)=>f.name),['oid','name','is_inherited','description']);
 assert.equal(result.rows.length,1);
 
+req = classifyPgAdminTableChildQuery(`SELECT count(*) FROM pg_catalog.pg_attribute att
+WHERE att.attrelid = ${tid}::oid AND att.attnum > 0 AND NOT att.attisdropped`);
+assert.equal(req?.kind,'columnCount');
+result = renderColumnQuery(req, columns);
+assert.deepEqual(result.fields.map((f)=>f.name), ['count']);
+assert.deepEqual(result.rows, [[2]]);
+
+req = classifyPgAdminTableChildQuery(`SELECT count(*) FROM pg_catalog.pg_index idx
+WHERE idx.indrelid = ${tid}::oid`);
+assert.equal(req?.kind,'indexCount');
+result = renderIndexQuery(req, indexes, tid);
+assert.deepEqual(result.fields.map((f)=>f.name), ['count']);
+assert.deepEqual(result.rows, [[1]]);
+
 req = classifyPgAdminTableChildQuery(`SELECT rel.oid, rel.relname AS name, 0 AS triggercount, false AS has_enable_triggers,
 false AS is_partitioned, nsp.oid AS schema_id, nsp.nspname AS schema_name, des.description
 FROM pg_catalog.pg_inherits inh JOIN pg_catalog.pg_class rel ON rel.oid=inh.inhrelid

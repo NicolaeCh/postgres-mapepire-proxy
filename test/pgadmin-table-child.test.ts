@@ -75,6 +75,25 @@ describe('pgAdmin IBM i table-child contracts', () => {
     expect(result.rows[0]?.[1]).toBe('ORDERS_IX1');
   });
 
+
+  it('answers Columns has_nodes count from live IBM i column rows', () => {
+    const req = classifyPgAdminTableChildQuery(`SELECT count(*) FROM pg_catalog.pg_attribute att
+      WHERE att.attrelid = ${tid}::oid AND att.attnum > 0 AND NOT att.attisdropped`);
+    expect(req?.kind).toBe('columnCount');
+    const result = renderColumnQuery(req as any, columns);
+    expect(result.fields.map((f) => f.name)).toEqual(['count']);
+    expect(result.rows).toEqual([[2]]);
+  });
+
+  it('answers Indexes has_nodes count from live IBM i index rows', () => {
+    const req = classifyPgAdminTableChildQuery(`SELECT count(*) FROM pg_catalog.pg_index idx
+      WHERE idx.indrelid = ${tid}::oid`);
+    expect(req?.kind).toBe('indexCount');
+    const result = renderIndexQuery(req as any, indexes, tid);
+    expect(result.fields.map((f) => f.name)).toEqual(['count']);
+    expect(result.rows).toEqual([[1]]);
+  });
+
   it('answers PostgreSQL partition collection locally with zero rows', () => {
     const req = classifyPgAdminTableChildQuery(`SELECT rel.oid, rel.relname AS name, 0 AS triggercount,
       false AS has_enable_triggers, false AS is_partitioned, nsp.oid AS schema_id, nsp.nspname AS schema_name,

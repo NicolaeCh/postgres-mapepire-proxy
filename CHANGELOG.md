@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.16 - 2026-08-12
+
+- Fixed pgAdmin Columns and Indexes collections being absent even though live IBM i node adapters existed: pgAdmin `has_nodes()` count requests are now intercepted and answered from `QSYS2.SYSCOLUMNS2` and `QSYS2.SYSINDEXES`.
+- Added a live pgAdmin Views adapter backed by `QSYS2.SYSTABLES` (`TABLE_TYPE='V'`) and `QSYS2.SYSVIEWS`, including view names, comments, owners, and view definitions.
+- Registered deterministic virtual OIDs for IBM i views so pgAdmin can subsequently resolve Columns for a view, including across separate pgAdmin connections.
+- Broadened concrete-OID Columns/Indexes query recognition to tolerate minor pgAdmin SQL template variations while retaining the 0.1.15 nested-trigger safeguard.
+- Added regression coverage for Columns count, Indexes count, Views count/nodes/properties, and table-vs-view classifier separation.
+
 ## 0.1.15 - 2026-08-12
 
 - Fixed a 0.1.14 pgAdmin Tables regression: the new table-child classifier no longer mistakes nested `pg_trigger` count subqueries inside the normal Tables `nodes.sql` request for a Triggers child collection.

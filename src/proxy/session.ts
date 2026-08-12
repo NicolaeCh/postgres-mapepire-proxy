@@ -42,6 +42,11 @@ import {
   renderColumnQuery, renderIndexQuery, renderEmptyTableChild,
   type IbmiColumnRow, type IbmiIndexRow,
 } from '../sql/pgadmin-ibmi-table-child.js';
+import {
+  classifyPgAdminIbmiViewQuery, IBMI_VIEW_CATALOG_SQL, renderPgAdminIbmiViewQuery,
+  registerIbmiViews, lookupRegisteredIbmiView,
+  type IbmiViewRow,
+} from '../sql/pgadmin-ibmi-view.js';
 import { reorderParameters, translateSql, type Translation } from '../sql/translator.js';
 
 interface PreparedStatement { sql: string; parameterOids: number[]; translation?: Translation; }
@@ -533,40 +538,73 @@ export class ProxySession {
         return renderEmptyTableChild(childRequest);
       }
 
-      let table = lookupRegisteredIbmiTable(childRequest.tableOid);
+      let relation = lookupRegisteredIbmiTable(childRequest.tableOid) ?? lookupRegisteredIbmiView(childRequest.tableOid);
       // Defensive refresh for a cached pgAdmin tree immediately after proxy
-      // restart: seed the registry from the configured current schema.
-      if (!table) {
+      // restart: seed both table and view registries from the configured
+      // current schema. Views use the same Columns browser module in pgAdmin.
+      if (!relation) {
         await this.fetchIbmiTables(this.currentSchema);
-        table = lookupRegisteredIbmiTable(childRequest.tableOid);
+        await this.fetchIbmiViews(this.currentSchema);
+        relation = lookupRegisteredIbmiTable(childRequest.tableOid) ?? lookupRegisteredIbmiView(childRequest.tableOid);
       }
-      if (!table) {
-        this.logger.warn('pgAdmin table child OID could not be resolved', {
+      if (!relation) {
+        this.logger.warn('pgAdmin relation child OID could not be resolved', {
           kind: childRequest.kind,
           tableOid: childRequest.tableOid,
           currentSchema: this.currentSchema,
         });
-        if (childRequest.kind === 'columnNodes' || childRequest.kind === 'columnProperties') {
+        if (childRequest.kind === 'columnCount' || childRequest.kind === 'columnNodes' || childRequest.kind === 'columnProperties') {
           return renderColumnQuery(childRequest, []);
         }
         return renderIndexQuery(childRequest, [], childRequest.tableOid);
       }
 
-      if (childRequest.kind === 'columnNodes' || childRequest.kind === 'columnProperties') {
-        const columns = await this.fetchIbmiColumns(table.schema, table.name);
+      if (childRequest.kind === 'columnCount' || childRequest.kind === 'columnNodes' || childRequest.kind === 'columnProperties') {
+        const columns = await this.fetchIbmiColumns(relation.schema, relation.name);
         this.logger.info('pgAdmin IBM i column catalog request', {
-          kind: childRequest.kind, schema: table.schema, table: table.name, tableOid: childRequest.tableOid,
+          kind: childRequest.kind, schema: relation.schema, table: relation.name, tableOid: childRequest.tableOid,
           columnCount: columns.length,
         });
         return renderColumnQuery(childRequest, columns);
       }
 
-      const indexes = await this.fetchIbmiIndexes(table.schema, table.name);
+      const indexes = await this.fetchIbmiIndexes(relation.schema, relation.name);
       this.logger.info('pgAdmin IBM i index catalog request', {
-        kind: childRequest.kind, schema: table.schema, table: table.name, tableOid: childRequest.tableOid,
+        kind: childRequest.kind, schema: relation.schema, table: relation.name, tableOid: childRequest.tableOid,
         indexCount: indexes.length,
       });
       return renderIndexQuery(childRequest, indexes, childRequest.tableOid);
+    }
+
+    // pgAdmin Views collection/browser queries use relkind='v'. Resolve them
+    // from live IBM i catalogs before the Tables and generic pg_catalog paths.
+    const viewRequest = classifyPgAdminIbmiViewQuery(sql);
+    if (viewRequest) {
+      const schemas = await this.fetchIbmiSchemas();
+      let schema = viewRequest.schemaOid !== undefined
+        ? findSchemaByCompatibleOid(schemas, viewRequest.schemaOid)
+        : undefined;
+
+      if (!schema && viewRequest.schemaOid !== undefined) {
+        const current = schemas.find((row) => sameSqlIdentifier(row.name, this.currentSchema));
+        if (current) {
+          schema = current;
+          this.logger.warn('Using current IBM i schema for unresolved pgAdmin Views schema OID', {
+            kind: viewRequest.kind, requestedSchemaOid: viewRequest.schemaOid, fallbackSchema: current.name,
+          });
+        }
+      }
+
+      const views = schema ? await this.fetchIbmiViews(schema.name) : [];
+      const rendered = renderPgAdminIbmiViewQuery(viewRequest, views);
+      this.logger.info('pgAdmin IBM i view catalog request', {
+        kind: viewRequest.kind, requestedSchemaOid: viewRequest.schemaOid, resolvedSchema: schema?.name,
+        viewCount: views.length, returnedRows: rendered.rows.length,
+        returnedViewNames: viewRequest.kind === 'nodes'
+          ? rendered.rows.slice(0, 20).map((row) => String(row[1] ?? ''))
+          : undefined,
+      });
+      return rendered;
     }
 
 
@@ -695,6 +733,33 @@ export class ProxySession {
       columnCount: Number(caseInsensitiveValue(row, 'COLUMN_COUNT') ?? 0),
     })).filter((row: IbmiTableRow) => row.schema.length > 0 && row.name.length > 0);
     registerIbmiTables(rows);
+    return rows;
+  }
+
+  private async fetchIbmiViews(schemaName: string): Promise<IbmiViewRow[]> {
+    let result: QueryResult<Record<string, unknown>>;
+    try {
+      result = await this.executePaged(IBMI_VIEW_CATALOG_SQL, [schemaName], 0);
+      if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+    } catch (error) {
+      this.logger.warn('IBM i view catalog query failed', {
+        schema: schemaName,
+        error: String((error as Error)?.message ?? error),
+      });
+      throw error;
+    }
+
+    const rows = result.data.map((row: Record<string, unknown>) => ({
+      schema: String(caseInsensitiveValue(row, 'TABLE_SCHEMA') ?? '').trim(),
+      name: String(caseInsensitiveValue(row, 'TABLE_NAME') ?? '').trim(),
+      owner: String(caseInsensitiveValue(row, 'TABLE_OWNER') ?? '').trim(),
+      text: nullableString(caseInsensitiveValue(row, 'TABLE_TEXT')),
+      longComment: nullableString(caseInsensitiveValue(row, 'LONG_COMMENT')),
+      columnCount: Number(caseInsensitiveValue(row, 'COLUMN_COUNT') ?? 0),
+      definition: nullableString(caseInsensitiveValue(row, 'VIEW_DEFINITION')),
+      checkOption: null,
+    })).filter((row: IbmiViewRow) => row.schema.length > 0 && row.name.length > 0);
+    registerIbmiViews(rows);
     return rows;
   }
 

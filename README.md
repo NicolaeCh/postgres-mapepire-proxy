@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.15 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.15
+podman build -t postgres-mapepire-proxy:0.1.16 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.16
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -86,6 +86,12 @@ This is intentionally a **compatibility proxy**, not an implementation of the Po
 
 
 
+
+## pgAdmin Columns, Indexes and Views (0.1.16)
+
+Release 0.1.16 completes the live IBM i browser path for table metadata. pgAdmin first executes a `count.sql`/`has_nodes()` probe before showing the **Columns** or **Indexes** collection; those probes are now answered from live `QSYS2.SYSCOLUMNS2` and `QSYS2.SYSINDEXES` rows, and expanding the collection returns the corresponding IBM i metadata.
+
+The **Views** collection is now backed by live IBM i catalogs. SQL views are discovered with `QSYS2.SYSTABLES` where `TABLE_TYPE='V'` and enriched from `QSYS2.SYSVIEWS`, including the view definition. Views receive stable virtual PostgreSQL OIDs, so their **Columns** collection is resolved through the same `QSYS2.SYSCOLUMNS2` path as table columns. A pgAdmin refresh therefore exposes views created directly on IBM i with `CREATE VIEW`.
 
 ## pgAdmin Tables regression fix (0.1.15)
 
