@@ -11,6 +11,7 @@ All runtime configuration is supplied through `.env`. The repository includes `.
 | `PG_SERVER_VERSION` | `14.0` | PostgreSQL compatibility version exposed in wire `ParameterStatus`. Keep this value numeric. The pgAdmin 9.17 compatibility profile is validated against PostgreSQL 14 semantics to minimize version-specific catalog probes. |
 | `PG_PROTOCOL_TRACE` | `false` | Log PostgreSQL frontend message types (`Query`, `Parse`, `Bind`, `Describe`, `Execute`, `Sync`, etc.) plus application/database metadata. It does **not** log SQL text. Enable temporarily for protocol diagnostics. |
 | `PGADMIN_SCHEMA_CACHE_MS` | `10000` | Per-session cache lifetime for live IBM i `QSYS2.SYSSCHEMAS` rows used by pgAdmin schema navigation. Invalidated after proxy-created schemas. |
+| `PGADMIN_HIDE_SYSTEM_SCHEMAS` | `true` | Hide IBM i schemas/libraries beginning with `Q` or `SYS`, plus `INFORMATION_SCHEMA`, from pgAdmin schema navigation. Set `false` to show them. |
 | `PG_MAX_CLIENTS` | `100` | Maximum simultaneous client sockets. |
 | `PG_CLIENT_IDLE_TIMEOUT_MS` | `1800000` | Idle socket timeout. |
 | `PG_MAX_FRONTEND_MESSAGE_BYTES` | `16777216` | Maximum buffered size of a single post-authentication PG frontend frame. |
@@ -25,7 +26,7 @@ All runtime configuration is supplied through `.env`. The repository includes `.
 
 ### Database identity model
 
-The proxy exposes exactly one PostgreSQL database. Its name is `IBMI_RDB_NAME`, which should match the IBM i *LOCAL RDB directory entry. PostgreSQL's hierarchy `database → schema → table` is mapped to IBM i as `RDB → SQL schema/library → table`. `DEFAULT_SCHEMA` does **not** name the PostgreSQL database.
+The proxy exposes exactly one PostgreSQL database. Its name is `IBMI_RDB_NAME`, which should match the IBM i *LOCAL RDB directory entry. PostgreSQL's hierarchy `database → schema → table` is mapped to IBM i as `RDB → SQL schema/library → table`. `IBMI_CURRENT_SCHEMA` does **not** name the PostgreSQL database; it sets the initial Db2 current schema/search path.
 
 If a client requests another StartupMessage database name, the proxy returns PostgreSQL SQLSTATE `3D000` (`invalid_catalog_name`).
 
@@ -42,7 +43,8 @@ Every IBM i connection uses the same service profile. PostgreSQL usernames are n
 | `IBMI_PASSWORD` | required | Password for `IBMI_USER`. |
 | `MAPEPIRE_REJECT_UNAUTHORIZED` | `true` | Verify Mapepire TLS certificate. |
 | `MAPEPIRE_CA_FILE` | empty | Optional PEM CA for private PKI. |
-| `DEFAULT_SCHEMA` | `QGPL`/site value | Db2 current schema applied on connect and on pool release. |
+| `IBMI_CURRENT_SCHEMA` | `MYLIB`/site value | Preferred setting for the Db2 current schema applied on connect and restored when a pooled job is released. Also backs PostgreSQL `current_schema()`. |
+| `DEFAULT_SCHEMA` | `QGPL` | Backward-compatible alias used only when `IBMI_CURRENT_SCHEMA` is not set. |
 
 Use a dedicated IBM i profile with least privilege: access only to the schemas/tables/procedures required by the applications using the proxy. Do not use `QSECOFR` or another broad administrative profile.
 
@@ -56,7 +58,7 @@ Use a dedicated IBM i profile with least privilege: access only to the schemas/t
 | `MAPEPIRE_RECONNECT_RETRIES` | `0` | Optional retry count for known-safe idempotent reads outside transactions. |
 | `MAPEPIRE_FETCH_SIZE` | `500` | Rows requested per Mapepire cursor page. |
 
-One `SQLJob` is leased to one PostgreSQL session for that session's lifetime. It is never shared concurrently. On release the proxy issues defensive `ROLLBACK` and restores `DEFAULT_SCHEMA` before returning the job to the idle pool.
+One `SQLJob` is leased to one PostgreSQL session for that session's lifetime. It is never shared concurrently. On release the proxy issues defensive `ROLLBACK` and restores `IBMI_CURRENT_SCHEMA` before returning the job to the idle pool.
 
 ## Mapepire JDBC / Toolbox properties
 

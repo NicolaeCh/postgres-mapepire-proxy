@@ -261,6 +261,13 @@ export function containsUnhandledPostgresSystemSql(sql: string): boolean {
     .replace(/\b(?:pg_catalog\.)?pg_class\b/gi, '')
     .replace(/\b(?:pg_catalog\.)?pg_type\b/gi, '');
 
+  // PostgreSQL OID is a catalog identifier type, not a Db2 for i SQL type.
+  // Exact schema/table/child adapters run before this firewall; any remaining
+  // pg_catalog query containing ::OID/CAST(... AS OID) must stay local or Db2
+  // will try to resolve OID as an *SQLUDT (SQL0204).
+  if ((/::\s*oid\b/i.test(s) || /\bcast\s*\([^)]*\bas\s+oid\s*\)/i.test(s))
+      && /\b(?:pg_catalog\.)?pg_(?:namespace|class|type)\b/i.test(s)) return true;
+
   if (/\bpg_catalog\./i.test(withoutMappedRelations)) return true;
   // PostgreSQL reserves the pg_* namespace for system objects/functions. After
   // removing the three catalog relations explicitly mapped by this proxy, no
@@ -727,7 +734,7 @@ function evaluateBuiltinExpression(
     return { field: int4(alias ?? 'inet_server_port'), value: context.serverPort ?? 5432 };
   }
   if (/^version\s*\(\s*\)$/i.test(core)) {
-    return { field: text(alias ?? 'version'), value: 'PostgreSQL 14.0 compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.13)' };
+    return { field: text(alias ?? 'version'), value: 'PostgreSQL 14.0 compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.14)' };
   }
   const setting = core.match(/^(?:pg_catalog\.)?current_setting\s*\(\s*'([^']+)'(?:\s*,\s*(?:true|false))?\s*\)$/i);
   if (setting) {

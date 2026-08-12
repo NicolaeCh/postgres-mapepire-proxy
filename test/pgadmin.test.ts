@@ -100,6 +100,12 @@ describe('pgAdmin 9.17 compatibility contract', () => {
     expect(r.rows).toEqual([]);
     expect(containsUnhandledPostgresSystemSql(sql)).toBe(true);
   });
+  it('quarantines PostgreSQL OID casts on mapped catalog relations', () => {
+    expect(containsUnhandledPostgresSystemSql(
+      'SELECT c.relname FROM pg_catalog.pg_class c WHERE c.oid=2050000001::OID',
+    )).toBe(true);
+  });
+
   it('returns exact dashboard chart_data shape and scheduler scalar', () => {
     const dash = pgAdminCompatibilityQuery(`/*pga4dash*/ SELECT 'session_stats' AS chart_name, pg_catalog.row_to_json(t) AS chart_data FROM (SELECT 0) t`, ctx)!;
     expect(dash.fields.map((f) => f.name)).toEqual(['chart_name','chart_data']);

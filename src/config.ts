@@ -84,6 +84,7 @@ if (storageLimit) jdbc['query storage limit'] = storageLimit;
 
 const tlsEnabled = bool('PG_TLS_ENABLED', false);
 const ibmiRdbName = required('IBMI_RDB_NAME').toUpperCase();
+const ibmiCurrentSchema = str('IBMI_CURRENT_SCHEMA', str('DEFAULT_SCHEMA', 'QGPL')).toUpperCase();
 
 export const config = {
   pg: {
@@ -99,6 +100,7 @@ export const config = {
     maxFrontendMessageBytes: num('PG_MAX_FRONTEND_MESSAGE_BYTES', 16 * 1024 * 1024),
     protocolTrace: bool('PG_PROTOCOL_TRACE', false),
     pgadminSchemaCacheMs: num('PGADMIN_SCHEMA_CACHE_MS', 10_000),
+    pgadminHideSystemSchemas: bool('PGADMIN_HIDE_SYSTEM_SCHEMAS', true),
     authMode: authMode(),
     user: process.env.PG_PROXY_USER?.trim() || '',
     password: process.env.PG_PROXY_PASSWORD || '',
@@ -118,7 +120,10 @@ export const config = {
     password: required('IBMI_PASSWORD'),
     rejectUnauthorized: bool('MAPEPIRE_REJECT_UNAUTHORIZED', true),
     ca: maybeFile(process.env.MAPEPIRE_CA_FILE),
-    defaultSchema: str('DEFAULT_SCHEMA', 'QGPL').toUpperCase(),
+    // IBMI_CURRENT_SCHEMA is the preferred name. DEFAULT_SCHEMA remains as a
+    // backward-compatible alias for deployments created before 0.1.14.
+    currentSchema: ibmiCurrentSchema,
+    defaultSchema: ibmiCurrentSchema,
     jdbc,
     poolStartingSize: num('MAPEPIRE_POOL_STARTING_SIZE', 4),
     poolMaxSize: num('MAPEPIRE_POOL_MAX_SIZE', 12),

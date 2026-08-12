@@ -23,7 +23,7 @@ Acceptance criteria: process starts only with valid mandatory IBM i settings and
 - Persistent `SQLJob` objects are opened at startup.
 - Session-affinity pool leases one Mapepire job to one PostgreSQL connection.
 - Pool grows from `MAPEPIRE_POOL_STARTING_SIZE` to `MAPEPIRE_POOL_MAX_SIZE`.
-- Release performs defensive `ROLLBACK` and restores `DEFAULT_SCHEMA`.
+- Release performs defensive `ROLLBACK` and restores `IBMI_CURRENT_SCHEMA`.
 - Broken jobs are discarded and replenished.
 - In-flight job creation is reserved against `MAPEPIRE_POOL_MAX_SIZE`, preventing connection bursts from temporarily exceeding the configured IBM i job cap.
 

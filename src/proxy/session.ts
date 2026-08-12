@@ -34,8 +34,14 @@ import {
   isPgCreateTable,
   parsePgTableOwnerDdl,
   renderPgAdminIbmiTableQuery,
+  registerIbmiTables, lookupRegisteredIbmiTable,
   type IbmiTableRow,
 } from '../sql/pgadmin-ibmi-table.js';
+import {
+  classifyPgAdminTableChildQuery, IBMI_COLUMN_CATALOG_SQL, IBMI_INDEX_CATALOG_SQL,
+  renderColumnQuery, renderIndexQuery, renderEmptyTableChild,
+  type IbmiColumnRow, type IbmiIndexRow,
+} from '../sql/pgadmin-ibmi-table-child.js';
 import { reorderParameters, translateSql, type Translation } from '../sql/translator.js';
 
 interface PreparedStatement { sql: string; parameterOids: number[]; translation?: Translation; }
@@ -64,7 +70,7 @@ export class ProxySession {
   private closed = false;
   private chain: Promise<void> = Promise.resolve();
   private extendedError = false;
-  private currentSchema = config.ibmi.defaultSchema;
+  private currentSchema = config.ibmi.currentSchema;
   private schemaCache?: { expiresAt: number; rows: IbmiSchemaRow[] };
   // Keep the TCP accumulation buffer typed as Uint8Array. Node 24's Buffer
   // definitions parameterize the backing ArrayBuffer type, and mixing buffers
@@ -500,6 +506,7 @@ export class ProxySession {
       const rendered = renderPgAdminIbmiSchemaQuery(schemaRequest, schemas, {
         user: this.client.user ?? config.pg.user ?? 'proxy',
         currentSchema: this.currentSchema,
+        hideSystemSchemas: config.pg.pgadminHideSystemSchemas,
       });
       if (schemaRequest.kind === 'count' || schemaRequest.kind === 'nodes' || schemaRequest.kind === 'properties') {
         this.logger.info('pgAdmin IBM i schema catalog request', {
@@ -515,6 +522,53 @@ export class ProxySession {
       }
       return rendered;
     }
+
+    // Table child collections (Columns, Indexes, Partitions and PostgreSQL-only
+    // children) are keyed by the virtual table OID pgAdmin received from the
+    // Tables adapter. Resolve the OID from the process-wide live table registry
+    // and never forward PostgreSQL ::OID casts to Db2 for i.
+    const childRequest = classifyPgAdminTableChildQuery(sql);
+    if (childRequest) {
+      if (childRequest.kind === 'partitionNodes' || childRequest.kind === 'emptyTableChild') {
+        return renderEmptyTableChild(childRequest);
+      }
+
+      let table = lookupRegisteredIbmiTable(childRequest.tableOid);
+      // Defensive refresh for a cached pgAdmin tree immediately after proxy
+      // restart: seed the registry from the configured current schema.
+      if (!table) {
+        await this.fetchIbmiTables(this.currentSchema);
+        table = lookupRegisteredIbmiTable(childRequest.tableOid);
+      }
+      if (!table) {
+        this.logger.warn('pgAdmin table child OID could not be resolved', {
+          kind: childRequest.kind,
+          tableOid: childRequest.tableOid,
+          currentSchema: this.currentSchema,
+        });
+        if (childRequest.kind === 'columnNodes' || childRequest.kind === 'columnProperties') {
+          return renderColumnQuery(childRequest, []);
+        }
+        return renderIndexQuery(childRequest, [], childRequest.tableOid);
+      }
+
+      if (childRequest.kind === 'columnNodes' || childRequest.kind === 'columnProperties') {
+        const columns = await this.fetchIbmiColumns(table.schema, table.name);
+        this.logger.info('pgAdmin IBM i column catalog request', {
+          kind: childRequest.kind, schema: table.schema, table: table.name, tableOid: childRequest.tableOid,
+          columnCount: columns.length,
+        });
+        return renderColumnQuery(childRequest, columns);
+      }
+
+      const indexes = await this.fetchIbmiIndexes(table.schema, table.name);
+      this.logger.info('pgAdmin IBM i index catalog request', {
+        kind: childRequest.kind, schema: table.schema, table: table.name, tableOid: childRequest.tableOid,
+        indexCount: indexes.length,
+      });
+      return renderIndexQuery(childRequest, indexes, childRequest.tableOid);
+    }
+
 
     // pgAdmin table collection/browser queries need live IBM i catalog data.
     // Resolve them before the schema and generic pg_catalog handlers: table
@@ -631,7 +685,7 @@ export class ProxySession {
       throw error;
     }
 
-    return result.data.map((row: Record<string, unknown>) => ({
+    const rows = result.data.map((row: Record<string, unknown>) => ({
       schema: String(caseInsensitiveValue(row, 'TABLE_SCHEMA') ?? '').trim(),
       name: String(caseInsensitiveValue(row, 'TABLE_NAME') ?? '').trim(),
       owner: String(caseInsensitiveValue(row, 'TABLE_OWNER') ?? '').trim(),
@@ -640,6 +694,49 @@ export class ProxySession {
       longComment: nullableString(caseInsensitiveValue(row, 'LONG_COMMENT')),
       columnCount: Number(caseInsensitiveValue(row, 'COLUMN_COUNT') ?? 0),
     })).filter((row: IbmiTableRow) => row.schema.length > 0 && row.name.length > 0);
+    registerIbmiTables(rows);
+    return rows;
+  }
+
+  private async fetchIbmiColumns(schemaName: string, tableName: string): Promise<IbmiColumnRow[]> {
+    const result = await this.executePaged(IBMI_COLUMN_CATALOG_SQL, [schemaName, tableName], 0);
+    if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+    return result.data.map((row: Record<string, unknown>) => ({
+      schema: String(caseInsensitiveValue(row, 'TABLE_SCHEMA') ?? '').trim(),
+      table: String(caseInsensitiveValue(row, 'TABLE_NAME') ?? '').trim(),
+      name: String(caseInsensitiveValue(row, 'COLUMN_NAME') ?? '').trim(),
+      ordinal: Number(caseInsensitiveValue(row, 'ORDINAL_POSITION') ?? 0),
+      dataType: String(caseInsensitiveValue(row, 'DATA_TYPE') ?? '').trim(),
+      length: nullableNumber(caseInsensitiveValue(row, 'LENGTH')),
+      numericScale: nullableNumber(caseInsensitiveValue(row, 'NUMERIC_SCALE')),
+      numericPrecision: nullableNumber(caseInsensitiveValue(row, 'NUMERIC_PRECISION')),
+      nullable: String(caseInsensitiveValue(row, 'IS_NULLABLE') ?? 'Y').trim().toUpperCase() === 'Y',
+      longComment: nullableString(caseInsensitiveValue(row, 'LONG_COMMENT')),
+      text: nullableString(caseInsensitiveValue(row, 'COLUMN_TEXT')),
+      hasDefault: String(caseInsensitiveValue(row, 'HAS_DEFAULT') ?? 'N').trim(),
+      defaultValue: nullableString(caseInsensitiveValue(row, 'COLUMN_DEFAULT')),
+      charMaxLength: nullableNumber(caseInsensitiveValue(row, 'CHARACTER_MAXIMUM_LENGTH')),
+      datetimePrecision: nullableNumber(caseInsensitiveValue(row, 'DATETIME_PRECISION')),
+      identity: String(caseInsensitiveValue(row, 'IS_IDENTITY') ?? 'NO').trim().toUpperCase() === 'YES',
+      identityGeneration: nullableString(caseInsensitiveValue(row, 'IDENTITY_GENERATION')),
+      expression: nullableString(caseInsensitiveValue(row, 'COLUMN_EXPRESSION')),
+    })).filter((row: IbmiColumnRow) => row.name.length > 0 && row.ordinal > 0);
+  }
+
+  private async fetchIbmiIndexes(schemaName: string, tableName: string): Promise<IbmiIndexRow[]> {
+    const result = await this.executePaged(IBMI_INDEX_CATALOG_SQL, [schemaName, tableName], 0);
+    if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+    return result.data.map((row: Record<string, unknown>) => ({
+      schema: String(caseInsensitiveValue(row, 'TABLE_SCHEMA') ?? '').trim(),
+      table: String(caseInsensitiveValue(row, 'TABLE_NAME') ?? '').trim(),
+      indexSchema: String(caseInsensitiveValue(row, 'INDEX_SCHEMA') ?? '').trim(),
+      name: String(caseInsensitiveValue(row, 'INDEX_NAME') ?? '').trim(),
+      owner: String(caseInsensitiveValue(row, 'INDEX_OWNER') ?? '').trim(),
+      unique: ['U', 'V'].includes(String(caseInsensitiveValue(row, 'IS_UNIQUE') ?? 'D').trim().toUpperCase()),
+      columnCount: Number(caseInsensitiveValue(row, 'COLUMN_COUNT') ?? 0),
+      longComment: nullableString(caseInsensitiveValue(row, 'LONG_COMMENT')),
+      text: nullableString(caseInsensitiveValue(row, 'INDEX_TEXT')),
+    })).filter((row: IbmiIndexRow) => row.name.length > 0);
   }
 
   private async executeCreateSchema(plan: CreateSchemaPlan): Promise<void> {
@@ -745,7 +842,7 @@ export class ProxySession {
 
   private pgCompatContext() {
     const digest = createHash('sha256')
-      .update(`${config.ibmi.host}:${config.ibmi.port}:${config.ibmi.defaultSchema}`)
+      .update(`${config.ibmi.host}:${config.ibmi.port}:${config.ibmi.currentSchema}`)
       .digest();
     // PostgreSQL system_identifier is an unsigned 64-bit decimal. Keep the
     // synthetic value positive and stable for a given IBM i endpoint.
@@ -816,6 +913,12 @@ function nullableString(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   const text = String(value).trim();
   return text.length ? text : null;
+}
+
+function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function splitSimpleStatements(sql: string): string[] {

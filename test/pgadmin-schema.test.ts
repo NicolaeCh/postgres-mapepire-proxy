@@ -11,7 +11,7 @@ const schemas = [
   { name: 'APP2', owner: 'MAPESVC', text: null },
   { name: 'QSYS2', owner: 'QSYS', text: null },
 ];
-const context = { user: 'nicolae', currentSchema: 'MONAI' };
+const context = { user: 'nicolae', currentSchema: 'MONAI', hideSystemSchemas: true };
 
 function run(sql: string) {
   const req = classifyPgAdminIbmiSchemaQuery(sql);
@@ -29,6 +29,15 @@ describe('pgAdmin IBM i-backed schema browser contract', () => {
       WHERE nspname NOT LIKE E'pg\\_%' ORDER BY nspname`);
     expect(r.fields.map((f) => f.name)).toEqual(['oid','name','can_create','has_usage','description']);
     expect(r.rows.map((row) => row[1])).toEqual(['APP2','MONAI']);
+  });
+
+  it('can expose IBM i system schemas when filtering is disabled', () => {
+    const req = classifyPgAdminIbmiSchemaQuery(`SELECT nsp.oid, nsp.nspname as name,
+      pg_catalog.has_schema_privilege(nsp.oid, 'CREATE') as can_create,
+      pg_catalog.has_schema_privilege(nsp.oid, 'USAGE') as has_usage, des.description
+      FROM pg_catalog.pg_namespace nsp LEFT JOIN pg_catalog.pg_description des ON true`);
+    const result = renderPgAdminIbmiSchemaQuery(req!, schemas, { ...context, hideSystemSchemas: false });
+    expect(result.rows.map((row) => row[1])).toContain('QSYS2');
   });
 
   it('returns all visible schema property rows for SchemaView.list()', () => {

@@ -166,3 +166,16 @@ pgAdmin issues a PostgreSQL-specific pgAgent capability query during database in
 pgAdmin's Tables collection is backed by live `QSYS2.SYSTABLES` data instead of the generic virtual `pg_class` rewrite. The adapter handles pgAdmin 9.17 table count, node, property, table-name/OID, and schema-for-table queries with stable synthetic OIDs. PostgreSQL-only trigger, inheritance, toast, replication and storage properties are returned conservatively as zero/false/null where they have no IBM i equivalent.
 
 For normal table creation, PostgreSQL SERIAL-family pseudo-types are mapped to Db2 for i identity columns. PostgreSQL table OWNER is virtual because all backend DDL uses the configured IBM i Mapepire service profile.
+
+## Table child browsing — 0.1.14
+
+pgAdmin identifies a table with the proxy's deterministic virtual PostgreSQL OID and then issues PostgreSQL catalog SQL for child collections. Release 0.1.14 intercepts those requests before generic SQL translation:
+
+- **Columns** → live `QSYS2.SYSCOLUMNS2` rows for the resolved IBM i schema/table.
+- **Indexes** → live `QSYS2.SYSINDEXES` rows for SQL indexes created with `CREATE INDEX`.
+- **Partitions/inheritance** → empty PostgreSQL-compatible collection because the proxy does not model IBM i table partitioning as `pg_inherits` child relations.
+- PostgreSQL-only Rules/Triggers/RLS browser collections are kept local when no IBM i browser mapping exists.
+
+PostgreSQL `OID` is a catalog identifier type. It is never translated as a Db2 type. Remaining PostgreSQL-system statements containing `::OID` are quarantined before Mapepire to prevent IBM i SQL0204 `OID ... *SQLUDT not found` errors.
+
+`PGADMIN_HIDE_SYSTEM_SCHEMAS=true` hides IBM i schema/library names beginning with `Q` or `SYS` plus `INFORMATION_SCHEMA`. `IBMI_CURRENT_SCHEMA` sets the initial Db2 current schema and the value exposed through `current_schema()`.

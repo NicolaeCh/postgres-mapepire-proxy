@@ -11,6 +11,7 @@ export interface IbmiSchemaRow {
 export interface PgAdminIbmiContext {
   user: string;
   currentSchema: string;
+  hideSystemSchemas: boolean;
 }
 
 export type PgAdminIbmiSchemaRequest =
@@ -101,7 +102,7 @@ export function renderPgAdminIbmiSchemaQuery(
   allSchemas: IbmiSchemaRow[],
   context: PgAdminIbmiContext,
 ): SyntheticResult {
-  const schemas = visibleSchemas(allSchemas, context.currentSchema);
+  const schemas = visibleSchemas(allSchemas, context.hideSystemSchemas);
 
   if (request.kind === 'acl') {
     return {
@@ -273,18 +274,20 @@ export function isPgSchemaPrivilegeDdl(sql: string): boolean {
     || /^\s*SECURITY\s+LABEL\s+ON\s+SCHEMA\b/i.test(sql);
 }
 
-function visibleSchemas(rows: IbmiSchemaRow[], currentSchema: string): IbmiSchemaRow[] {
+function visibleSchemas(rows: IbmiSchemaRow[], hideSystemSchemas: boolean): IbmiSchemaRow[] {
   return [...rows]
-    .filter((row) => !isHiddenIbmiSystemSchema(row.name) || sameIdentifier(row.name, currentSchema))
+    .filter((row) => !hideSystemSchemas || !isHiddenIbmiSystemSchema(row.name))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function isHiddenIbmiSystemSchema(name: string): boolean {
+/**
+ * IBM i ships many system schemas/libraries beginning Q* and SYS*. pgAdmin is
+ * much easier to navigate when those are hidden by default, while the filter
+ * can be disabled entirely through PGADMIN_HIDE_SYSTEM_SCHEMAS=false.
+ */
+export function isHiddenIbmiSystemSchema(name: string): boolean {
   const n = name.toUpperCase();
-  return new Set([
-    'QSYS', 'QSYS2', 'SYSIBM', 'SYSIBMADM', 'SYSPROC', 'SYSSTAT', 'SYSFUN',
-    'SYSTOOLS', 'INFORMATION_SCHEMA', 'QXMLSERV', 'QGPL', 'QTEMP',
-  ]).has(n);
+  return n.startsWith('Q') || n.startsWith('SYS') || n === 'INFORMATION_SCHEMA';
 }
 
 function isPostgresCatalogName(name: string): boolean {

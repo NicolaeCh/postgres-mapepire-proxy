@@ -21,7 +21,7 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.13 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.14 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
@@ -118,3 +118,9 @@ The pgAdmin schema classifier was exercised against REL-9_17-shaped SQL containi
 
 All TypeScript files under `src/` and `test/` pass TypeScript 5.8 syntax/transpile validation in the delivery workspace. All environment variables referenced by source are present in `.env.example`, including the new required `IBMI_RDB_NAME`. A dependency-resolved container build remains the authoritative type/runtime validation.
 
+
+## 0.1.14 schema filtering and table-child validation
+
+All 20 TypeScript files under `src/` pass TypeScript 5.8 syntax/transpile validation in the delivery workspace. The dedicated compiled mini-contract checks pass for pgAdmin schema filtering and table-child behavior. They cover: default hiding of `Q*`/`SYS*` system schemas, disabling that filter, pgAdmin Columns nodes from IBM i `SYSCOLUMNS2`, Indexes nodes from `SYSINDEXES`, exact empty partition-node contracts, and remaining PostgreSQL catalog `::OID` quarantine. All 54 environment variables referenced by source are present in `.env.example`, including `PGADMIN_HIDE_SYSTEM_SCHEMAS` and `IBMI_CURRENT_SCHEMA`.
+
+The target `podman build` remains the authoritative dependency-resolved TypeScript/runtime check because public npm dependency installation is unavailable in this delivery environment.

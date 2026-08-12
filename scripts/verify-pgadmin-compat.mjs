@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { pgAdminCompatibilityQuery } from '../dist/src/sql/pgadmin.js';
+import { pgAdminCompatibilityQuery, containsUnhandledPostgresSystemSql } from '../dist/src/sql/pgadmin.js';
 import { environmentQuery } from '../dist/src/sql/environment.js';
 import { translateSql } from '../dist/src/sql/translator.js';
 
@@ -132,6 +132,9 @@ const unknown = local('SELECT pid, phase FROM pg_catalog.pg_stat_progress_vacuum
 assert.ok(unknown);
 assert.deepEqual(unknown.fields.map((f) => f.name), ['pid','phase']);
 assert.equal(unknown.rows.length, 0);
+
+// PostgreSQL catalog OID casts must never be translated into a Db2 SQLUDT.
+assert.equal(containsUnhandledPostgresSystemSql(`SELECT c.relname FROM pg_catalog.pg_class c WHERE c.oid=2050000001::OID`), true);
 
 // Defensive server identity probe.
 expectFields(`SELECT inet_server_addr() AS server_addr,

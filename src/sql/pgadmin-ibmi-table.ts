@@ -12,6 +12,26 @@ export interface IbmiTableRow {
   columnCount: number;
 }
 
+
+export interface RegisteredIbmiTable {
+  schema: string;
+  name: string;
+}
+
+// pgAdmin identifies tables only by virtual PostgreSQL OID when it later asks
+// for Columns/Indexes/Partitions. Keep a process-wide registry populated by
+// live table catalog reads so child-browser requests can resolve that OID back
+// to the IBM i schema/table name even when pgAdmin uses another connection.
+const tableRegistry = new Map<number, RegisteredIbmiTable>();
+
+export function registerIbmiTables(rows: IbmiTableRow[]): void {
+  for (const row of rows) tableRegistry.set(tableOid(row.schema, row.name), { schema: row.schema, name: row.name });
+}
+
+export function lookupRegisteredIbmiTable(oid: number): RegisteredIbmiTable | undefined {
+  return tableRegistry.get(oid);
+}
+
 export interface PgAdminIbmiTableContext {
   user: string;
 }

@@ -74,7 +74,7 @@ The `.env` exposes the performance/session properties used by this proxy: SQL na
 
 ### Session-state containment
 
-Because backend jobs are reused under one IBM i service identity, the proxy must not allow arbitrary PostgreSQL `SET` commands to leave state behind for a later client. v0.1 explicitly handles `search_path` and a small set of client-initialization settings; unsupported `SET` options return SQLSTATE `0A000`. Job release always performs a defensive `ROLLBACK` and restores `DEFAULT_SCHEMA`. Savepoints are also explicitly rejected in v0.1 rather than approximated.
+Because backend jobs are reused under one IBM i service identity, the proxy must not allow arbitrary PostgreSQL `SET` commands to leave state behind for a later client. v0.1 explicitly handles `search_path` and a small set of client-initialization settings; unsupported `SET` options return SQLSTATE `0A000`. Job release always performs a defensive `ROLLBACK` and restores `IBMI_CURRENT_SCHEMA`. Savepoints are also explicitly rejected in v0.1 rather than approximated.
 
 ### Retry policy
 
@@ -246,7 +246,7 @@ The standard SQL transformer also recognizes PostgreSQL SERIAL pseudo-types in C
 
 ## PostgreSQL database identity and IBM i RDB mapping
 
-The proxy intentionally implements a one-to-one database identity: one proxy listener represents one IBM i relational database. `IBMI_RDB_NAME` is the IBM i *LOCAL RDB directory name and is advertised/emulated as the sole PostgreSQL database. `DEFAULT_SCHEMA` is the Db2 current schema/library inside that RDB.
+The proxy intentionally implements a one-to-one database identity: one proxy listener represents one IBM i relational database. `IBMI_RDB_NAME` is the IBM i *LOCAL RDB directory name and is advertised/emulated as the sole PostgreSQL database. `IBMI_CURRENT_SCHEMA` is the Db2 current schema/library inside that RDB (`DEFAULT_SCHEMA` remains a compatibility fallback).
 
 This avoids conflating pgAdmin's PostgreSQL database level with IBM i libraries. Mapepire itself connects to the configured IBM i host/service profile; this release does not use a client StartupMessage database value to route to remote `WRKRDBDIRE` entries or multiple IASPs. Requests for another PostgreSQL database name are rejected with SQLSTATE `3D000`.
 

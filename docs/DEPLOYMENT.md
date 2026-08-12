@@ -71,7 +71,8 @@ IBMI_HOST=10.0.0.50
 MAPEPIRE_PORT=8076
 IBMI_USER=PGPROXY
 IBMI_PASSWORD=<service-profile-password>
-DEFAULT_SCHEMA=APPDATA
+IBMI_CURRENT_SCHEMA=APPDATA
+PGADMIN_HIDE_SYSTEM_SCHEMAS=true
 
 PG_AUTH_MODE=md5Password
 PG_PROXY_USER=proxyuser
@@ -136,19 +137,19 @@ The compose definition mounts `./certs` read-only at `/app/certs`.
 
 ```bash
 podman pull node:24-bookworm-slim
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.13 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.14 .
 ```
 
 ### Docker
 
 ```bash
 docker pull node:24-bookworm-slim
-docker build -t postgres-mapepire-proxy:0.1.13 .
+docker build -t postgres-mapepire-proxy:0.1.14 .
 ```
 
 The `Dockerfile` accepts `--build-arg NODE_IMAGE=...` if an exact tested tag/digest must be pinned. Keep the image on Node 24 LTS and verify that the chosen manifest contains both `linux/amd64` and `linux/ppc64le`.
 
-Before TypeScript compilation, a successful 0.1.13 build must print all four runtime dependency checks:
+Before TypeScript compilation, a successful 0.1.14 build must print all four runtime dependency checks:
 
 ```text
 Mapepire runtime module check OK
@@ -183,7 +184,7 @@ podman run -d \
   -p 8080:8080 \
   -v ./certs:/app/certs:ro,Z \
   --restart=unless-stopped \
-  postgres-mapepire-proxy:0.1.13
+  postgres-mapepire-proxy:0.1.14
 ```
 
 ### Compose
@@ -199,7 +200,7 @@ docker compose up -d
 ### Docker buildx
 
 ```bash
-IMAGE=registry.example.com/db/postgres-mapepire-proxy:0.1.13 \
+IMAGE=registry.example.com/db/postgres-mapepire-proxy:0.1.14 \
   ./scripts/build-multiarch-docker.sh
 ```
 
@@ -211,8 +212,8 @@ On builders capable of producing both target architectures:
 
 ```bash
 ./scripts/build-multiarch-podman.sh
-podman manifest push --all postgres-mapepire-proxy:0.1.13 \
-  docker://registry.example.com/db/postgres-mapepire-proxy:0.1.13
+podman manifest push --all postgres-mapepire-proxy:0.1.14 \
+  docker://registry.example.com/db/postgres-mapepire-proxy:0.1.14
 ```
 
 For production PPC64LE it is often preferable to build the PPC64LE image natively on IBM Power rather than through QEMU emulation.
@@ -254,7 +255,7 @@ Create a PostgreSQL connection:
 - Host: proxy host
 - Port: 5432
 - Maintenance database / Database: the value of `IBMI_RDB_NAME` (the IBM i *LOCAL RDB name from `WRKRDBDIRE`)
-- IBM i default SQL schema/library: configured separately as `DEFAULT_SCHEMA`; do not put the library name in pgAdmin's Maintenance database field
+- IBM i default SQL schema/library: configured separately as `IBMI_CURRENT_SCHEMA`; do not put the library name in pgAdmin's Maintenance database field
 - User: `PG_PROXY_USER`
 - Password: `PG_PROXY_PASSWORD`
 
@@ -296,7 +297,7 @@ SIGTERM triggers graceful socket shutdown, session rollback/release and Mapepire
 
 ### pgAdmin database naming
 
-For this proxy, use the IBM i *LOCAL RDB name as pgAdmin's **Maintenance database**. Example: if `WRKRDBDIRE` shows local RDB `POWER11A` and the application library is `MONAI`, configure `IBMI_RDB_NAME=POWER11A`, `DEFAULT_SCHEMA=MONAI`, and enter `POWER11A` as Maintenance database in pgAdmin.
+For this proxy, use the IBM i *LOCAL RDB name as pgAdmin's **Maintenance database**. Example: if `WRKRDBDIRE` shows local RDB `POWER11A` and the application library is `MONAI`, configure `IBMI_RDB_NAME=POWER11A`, `IBMI_CURRENT_SCHEMA=MONAI`, and enter `POWER11A` as Maintenance database in pgAdmin.
 
 The RDB name is a PostgreSQL-facing identity in this implementation; the Mapepire WebSocket endpoint is still selected by `IBMI_HOST`/`MAPEPIRE_PORT`. One proxy instance does not route a client-supplied database name to arbitrary RDB directory entries.
 

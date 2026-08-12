@@ -11,7 +11,7 @@ const schemas = [
   { name: 'APP2', owner: 'MAPESVC', text: null },
   { name: 'QSYS2', owner: 'QSYS', text: null },
 ];
-const ctx = { user: 'nicolae', currentSchema: 'MONAI' };
+const ctx = { user: 'nicolae', currentSchema: 'MONAI', hideSystemSchemas: true };
 const run = (sql) => {
   const req = classifyPgAdminIbmiSchemaQuery(sql);
   assert.ok(req, `Expected IBM i-backed schema contract for: ${sql}`);
@@ -28,6 +28,16 @@ const nodes = run(`SELECT nsp.oid, nsp.nspname as name,
 assert.deepEqual(nodes.fields.map((f) => f.name), ['oid','name','can_create','has_usage','description']);
 assert.ok(nodes.rows.some((row) => row[1] === 'MONAI'));
 assert.ok(!nodes.rows.some((row) => row[1] === 'QSYS2'));
+
+
+const nodesWithSystems = renderPgAdminIbmiSchemaQuery(
+  classifyPgAdminIbmiSchemaQuery(`SELECT nsp.oid, nsp.nspname as name,
+    pg_catalog.has_schema_privilege(nsp.oid, 'CREATE') as can_create,
+    pg_catalog.has_schema_privilege(nsp.oid, 'USAGE') as has_usage, des.description
+    FROM pg_catalog.pg_namespace nsp LEFT JOIN pg_catalog.pg_description des ON true`),
+  schemas, { ...ctx, hideSystemSchemas: false },
+);
+assert.ok(nodesWithSystems.rows.some((row) => row[1] === 'QSYS2'));
 
 const monaiOid = schemaOid('MONAI');
 const props = run(`SELECT CASE WHEN (nspname LIKE E'pg\\_temp\\_%') THEN 1 ELSE 3 END AS nsptyp,

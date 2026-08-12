@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.14 - 2026-08-12
+
+- Added `PGADMIN_HIDE_SYSTEM_SCHEMAS` (default `true`) to hide IBM i `Q*`, `SYS*`, and `INFORMATION_SCHEMA` schemas from pgAdmin.
+- Added preferred `IBMI_CURRENT_SCHEMA`; `DEFAULT_SCHEMA` remains a backward-compatible fallback.
+- Added live pgAdmin Columns browsing from `QSYS2.SYSCOLUMNS2`.
+- Added live pgAdmin SQL Index browsing from `QSYS2.SYSINDEXES`.
+- Virtualized PostgreSQL partition/inheritance and other PostgreSQL-only table children so `::OID` casts cannot leak to Db2 for i.
+- Added build-time pgAdmin table-child contract verification.
+
 ## 0.1.13 - 2026-08-12
 
 - Fix image build after `IBMI_RDB_NAME` became required in 0.1.12.

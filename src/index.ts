@@ -19,7 +19,7 @@ const pool = new SessionJobPool(
   config.ibmi.poolStartingSize,
   config.ibmi.poolMaxSize,
   config.ibmi.poolAcquireTimeoutMs,
-  config.ibmi.defaultSchema,
+  config.ibmi.currentSchema,
   logger,
 );
 

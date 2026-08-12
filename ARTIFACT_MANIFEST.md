@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.13 reference implementation**
+Version: **0.1.14 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.13 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.13.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.14.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 
@@ -70,3 +70,11 @@ See `docs/VALIDATION.md`. This build environment could not resolve npm packages 
 - The build stage supplies synthetic non-secret configuration (`IBMI_RDB_NAME=BUILDTEST`, fake host/user/password) solely to compiled contract tests.
 - `verify-pgadmin-wire.mjs` also self-seeds `IBMI_RDB_NAME` before dynamically importing runtime configuration, so it can be run directly outside a container.
 - Runtime behavior is unchanged: the final image still requires the real `IBMI_RDB_NAME`, `IBMI_HOST`, `IBMI_USER`, and `IBMI_PASSWORD` from the deployment environment.
+
+### 0.1.14 pgAdmin schema filtering and table children
+
+- `PGADMIN_HIDE_SYSTEM_SCHEMAS=true` hides IBM i `Q*`, `SYS*`, and `INFORMATION_SCHEMA` schemas in pgAdmin by default.
+- `IBMI_CURRENT_SCHEMA` is the preferred current-schema setting; `DEFAULT_SCHEMA` remains a fallback.
+- `src/sql/pgadmin-ibmi-table-child.ts` backs Columns with `QSYS2.SYSCOLUMNS2` and SQL Indexes with `QSYS2.SYSINDEXES`.
+- PostgreSQL-only partition/inheritance and unsupported table-child collections are virtualized locally so PostgreSQL `::OID` casts do not reach Db2 for i.
+- `scripts/verify-pgadmin-table-child.mjs` is a mandatory image-build contract gate.
