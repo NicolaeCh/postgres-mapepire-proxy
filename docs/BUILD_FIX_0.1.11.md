@@ -1,4 +1,4 @@
-# Build / Runtime Fix 0.1.11 — pgAdmin Tables schema resolution
+# Build / Runtime Fix 0.1.12 — pgAdmin Tables schema resolution
 
 ## Symptom
 

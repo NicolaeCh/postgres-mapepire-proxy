@@ -22,12 +22,20 @@ All runtime configuration is supplied through `.env`. The repository includes `.
 | `PG_TLS_CERT_FILE` | `/app/certs/server-cert.pem` | TLS certificate when enabled. |
 | `PG_TLS_CA_FILE` | empty | Optional CA chain. |
 
+
+### Database identity model
+
+The proxy exposes exactly one PostgreSQL database. Its name is `IBMI_RDB_NAME`, which should match the IBM i *LOCAL RDB directory entry. PostgreSQL's hierarchy `database → schema → table` is mapped to IBM i as `RDB → SQL schema/library → table`. `DEFAULT_SCHEMA` does **not** name the PostgreSQL database.
+
+If a client requests another StartupMessage database name, the proxy returns PostgreSQL SQLSTATE `3D000` (`invalid_catalog_name`).
+
 ## IBM i / Mapepire service identity
 
 Every IBM i connection uses the same service profile. PostgreSQL usernames are not forwarded to IBM i.
 
 | Variable | Default/example | Purpose |
 |---|---:|---|
+| `IBMI_RDB_NAME` | required | Name of the IBM i *LOCAL relational database (`WRKRDBDIRE`). This is exposed as the single PostgreSQL database name and must be used as pgAdmin Maintenance database. It identifies the backend database to clients; Mapepire still connects through `IBMI_HOST`. |
 | `IBMI_HOST` | required | IBM i host running Mapepire Server. |
 | `MAPEPIRE_PORT` | `8076` | Secure WebSocket Mapepire port. |
 | `IBMI_USER` | required | IBM i service profile used by all backend jobs. |

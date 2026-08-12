@@ -21,7 +21,7 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.11 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.12 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
@@ -111,3 +111,10 @@ The live pgAdmin 9.17 error log supplied for 0.1.7 was used to derive browser re
 ## 0.1.9 table-browser validation
 
 The compiled-contract checks cover pgAdmin 9.17's table collection count, node row shape, table property row shape, stable table OID/name lookup, PostgreSQL SERIAL-family translation and scalar SELECT EXISTS translation. The real IBM i acceptance test must confirm `QSYS2.SYSTABLES` visibility under the configured Mapepire service profile.
+
+## 0.1.12 RDB identity / schema-browser validation
+
+The pgAdmin schema classifier was exercised against REL-9_17-shaped SQL containing a top-level `FROM pg_catalog.pg_namespace` plus a nested catalog-exclusion predicate with `nspname='pg_catalog'` and `pg_class`. The former classifier reproduced the deployment failure by returning `oidByName(pg_catalog)`; 0.1.12 returns `nodes` and renders the expected `APP2`/`MONAI` rows. The simple `SELECT nsp.oid FROM pg_namespace ... WHERE nspname='MONAI'` lookup remains classified as `oidByName`.
+
+All TypeScript files under `src/` and `test/` pass TypeScript 5.8 syntax/transpile validation in the delivery workspace. All environment variables referenced by source are present in `.env.example`, including the new required `IBMI_RDB_NAME`. A dependency-resolved container build remains the authoritative type/runtime validation.
+

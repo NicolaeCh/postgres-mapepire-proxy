@@ -109,4 +109,21 @@ assert.equal(macroReq?.kind, 'properties');
 assert.equal(macroReq?.oid, macroOid);
 assert.equal(macroReq?.name, undefined);
 
+
+const nodesWithCatalogMacroSql = `SELECT nsp.oid, nsp.nspname as name,
+ pg_catalog.has_schema_privilege(nsp.oid, 'CREATE') as can_create,
+ pg_catalog.has_schema_privilege(nsp.oid, 'USAGE') as has_usage, des.description
+ FROM pg_catalog.pg_namespace nsp
+ LEFT OUTER JOIN pg_catalog.pg_description des ON
+   (des.objoid=nsp.oid AND des.classoid='pg_namespace'::regclass)
+ WHERE nspname NOT LIKE E'pg\\_%' AND NOT
+   ((nsp.nspname='pg_catalog' AND EXISTS
+     (SELECT 1 FROM pg_catalog.pg_class WHERE relname='pg_class')))
+ ORDER BY nspname`;
+const nodesWithCatalogMacroReq = classifyPgAdminIbmiSchemaQuery(nodesWithCatalogMacroSql);
+assert.equal(nodesWithCatalogMacroReq?.kind, 'nodes',
+  'pgAdmin nodes.sql must not be misclassified as oidByName(pg_catalog)');
+const nodesWithCatalogMacro = renderPgAdminIbmiSchemaQuery(nodesWithCatalogMacroReq, schemas, ctx);
+assert.deepEqual(nodesWithCatalogMacro.rows.map((row) => row[1]), ['APP2', 'MONAI']);
+
 console.log('pgAdmin IBM i schema contract check OK');

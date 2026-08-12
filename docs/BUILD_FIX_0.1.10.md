@@ -1,4 +1,4 @@
-# Runtime compatibility fix 0.1.11 — pgAdmin table discovery
+# Runtime compatibility fix 0.1.12 — pgAdmin table discovery
 
 ## Symptoms
 

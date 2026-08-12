@@ -31,13 +31,13 @@ flowchart LR
 ## Quick start
 
 1. Copy/edit `.env` (a safe placeholder file is already included).
-2. Set `IBMI_HOST`, `IBMI_USER`, `IBMI_PASSWORD`, `DEFAULT_SCHEMA` and proxy credentials.
+2. Set `IBMI_RDB_NAME`, `IBMI_HOST`, `IBMI_USER`, `IBMI_PASSWORD`, `DEFAULT_SCHEMA` and proxy credentials. `IBMI_RDB_NAME` is the *LOCAL relational database name shown by `WRKRDBDIRE`; `DEFAULT_SCHEMA` is the IBM i SQL schema/library.
 3. Ensure the Mapepire server is reachable on `MAPEPIRE_PORT` (default 8076).
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.11 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.11
+podman build -t postgres-mapepire-proxy:0.1.12 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.12
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -84,14 +84,23 @@ This is intentionally a **compatibility proxy**, not an implementation of the Po
 - `diagrams/*.mmd` — Mermaid source diagrams.
 
 
+
+## PostgreSQL database ↔ IBM i RDB mapping (0.1.12)
+
+One proxy instance represents one IBM i relational database. Set `IBMI_RDB_NAME` to the *LOCAL RDB name shown by `WRKRDBDIRE`. PostgreSQL clients must request that database name; arbitrary database labels are rejected with SQLSTATE `3D000`.
+
+For pgAdmin, use the same value for **Maintenance database**. The IBM i library/schema is a different level and belongs in `DEFAULT_SCHEMA` (for example `IBMI_RDB_NAME=MYRDB`, `DEFAULT_SCHEMA=MONAI`).
+
+Release 0.1.12 also fixes an empty-Schemas pgAdmin 9.17 regression where the schema nodes query was mistaken for a lookup of `pg_catalog` because pgAdmin embeds `nspname='pg_catalog'` inside its catalog-exclusion macro. Schema count/nodes/properties are now recognized from their primary `pg_namespace` relation and backed by live `QSYS2.SYSSCHEMAS`.
+
 ## Important v0.1 limitations
 
 `SAVEPOINT`/`ROLLBACK TO SAVEPOINT`, PostgreSQL `CancelRequest`, binary result format and full PostgreSQL catalog emulation are not implemented. Common client `SET statement_timeout`/`lock_timeout` initialization commands are accepted as no-ops; they do not cancel IBM i work. See `docs/COMPATIBILITY.md`.
 
 
-## pgAdmin table discovery reliability (0.1.11)
+## pgAdmin table discovery reliability (0.1.10)
 
-Release 0.1.11 fixes the remaining pgAdmin database-initialization and Tables-tree issues observed after 0.1.9:
+Release 0.1.12 fixes the remaining pgAdmin database-initialization and Tables-tree issues observed after 0.1.9:
 
 - pgAdmin's pgAgent capability probe (`has_table_privilege` / nested `WHERE EXISTS`) is answered locally as `false` and never sent to Db2 for i.
 - The live IBM i Tables catalog now uses the documented `QSYS2.SYSTABLES.FILE_TYPE = 'D'` filter with `TABLE_TYPE IN ('T','P')`, excluding source physical files without relying on a non-portable catalog column.

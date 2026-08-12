@@ -488,8 +488,33 @@ export class ProxySession {
   }
 
   private async resolveSynthetic(sql: string): Promise<SyntheticResult | undefined> {
-    const env = environmentQuery(sql, this.client.database ?? 'ibmi', this.currentSchema);
+    const env = environmentQuery(sql, config.pg.databaseName, this.currentSchema);
     if (env) return env;
+
+    // Schema browser queries are keyed by pg_namespace as their PRIMARY
+    // relation. Resolve them before the table adapter because pgAdmin schema
+    // templates embed pg_class inside catalog-exclusion macros.
+    const schemaRequest = classifyPgAdminIbmiSchemaQuery(sql);
+    if (schemaRequest) {
+      const schemas = await this.fetchIbmiSchemas();
+      const rendered = renderPgAdminIbmiSchemaQuery(schemaRequest, schemas, {
+        user: this.client.user ?? config.pg.user ?? 'proxy',
+        currentSchema: this.currentSchema,
+      });
+      if (schemaRequest.kind === 'count' || schemaRequest.kind === 'nodes' || schemaRequest.kind === 'properties') {
+        this.logger.info('pgAdmin IBM i schema catalog request', {
+          kind: schemaRequest.kind,
+          database: config.pg.databaseName,
+          currentSchema: this.currentSchema,
+          ibmiCatalogRows: schemas.length,
+          returnedRows: rendered.rows.length,
+          returnedSchemaNames: schemaRequest.kind === 'nodes'
+            ? rendered.rows.slice(0, 20).map((row) => String(row[1] ?? ''))
+            : undefined,
+        });
+      }
+      return rendered;
+    }
 
     // pgAdmin table collection/browser queries need live IBM i catalog data.
     // Resolve them before the schema and generic pg_catalog handlers: table
@@ -558,17 +583,6 @@ export class ProxySession {
 
       return renderPgAdminIbmiTableQuery(tableRequest, tables, resolvedSchemaOid, {
         user: this.client.user ?? config.pg.user ?? 'proxy',
-      });
-    }
-
-    // Schema browser queries need live IBM i catalog data and must be resolved
-    // before generic pg_roles/pg_catalog handlers can consume their subqueries.
-    const schemaRequest = classifyPgAdminIbmiSchemaQuery(sql);
-    if (schemaRequest) {
-      const schemas = await this.fetchIbmiSchemas();
-      return renderPgAdminIbmiSchemaQuery(schemaRequest, schemas, {
-        user: this.client.user ?? config.pg.user ?? 'proxy',
-        currentSchema: this.currentSchema,
       });
     }
 
@@ -737,7 +751,7 @@ export class ProxySession {
     // synthetic value positive and stable for a given IBM i endpoint.
     const numeric = (digest.readBigUInt64BE(0) & ((1n << 63n) - 1n)) || 1n;
     return {
-      database: this.client.database ?? 'ibmi',
+      database: config.pg.databaseName,
       user: this.client.user ?? config.pg.user ?? 'proxy',
       currentSchema: this.currentSchema,
       serverPort: config.pg.port,

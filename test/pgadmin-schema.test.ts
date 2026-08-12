@@ -78,6 +78,23 @@ describe('pgAdmin IBM i-backed schema browser contract', () => {
       requestedAuthorization: 'NICOLAE',
     });
   });
+  it('classifies pgAdmin nodes.sql with CATALOGS.LIST as nodes, not oidByName(pg_catalog)', () => {
+    const sql = `SELECT nsp.oid, nsp.nspname as name,
+      pg_catalog.has_schema_privilege(nsp.oid, 'CREATE') as can_create,
+      pg_catalog.has_schema_privilege(nsp.oid, 'USAGE') as has_usage, des.description
+      FROM pg_catalog.pg_namespace nsp
+      LEFT OUTER JOIN pg_catalog.pg_description des ON
+        (des.objoid=nsp.oid AND des.classoid='pg_namespace'::regclass)
+      WHERE nspname NOT LIKE E'pg\\_%' AND NOT
+        ((nsp.nspname='pg_catalog' AND EXISTS
+          (SELECT 1 FROM pg_catalog.pg_class WHERE relname='pg_class')))
+      ORDER BY nspname`;
+    const req = classifyPgAdminIbmiSchemaQuery(sql);
+    expect(req?.kind).toBe('nodes');
+    const rendered = renderPgAdminIbmiSchemaQuery(req!, schemas, context);
+    expect(rendered.rows.map((row) => row[1])).toEqual(['APP2', 'MONAI']);
+  });
+
   it('does not treat CATALOGS.LIST pg_catalog predicates as the selected schema', () => {
     const oid = schemaOid('MONAI');
     const sql = `SELECT CASE WHEN (nspname LIKE E'pg\\_temp\\_%') THEN 1 ELSE 3 END AS nsptyp,

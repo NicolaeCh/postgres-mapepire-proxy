@@ -1,11 +1,28 @@
+# Changelog
+
+## 0.1.12 - 2026-08-12
+
+- Define a one-proxy/one-RDB identity model with required `IBMI_RDB_NAME`; PostgreSQL StartupMessage database must match that IBM i local RDB name.
+- Recommend the same RDB name as pgAdmin Maintenance database; `DEFAULT_SCHEMA` remains the IBM i schema/library (for example `MONAI`).
+- Fix the empty pgAdmin Schemas tree: REL-9_17 `nodes.sql` was misclassified as `oidByName(pg_catalog)` because its catalog-exclusion macro contains `nspname='pg_catalog'`.
+- Make schema count/nodes/properties recognition depend on `pg_namespace` being the primary FROM relation and process schema contracts before table contracts.
+- Tighten simple schema OID/name lookup recognition so it cannot consume multi-column pgAdmin nodes queries.
+- Add INFO diagnostics for pgAdmin IBM i schema catalog count/nodes/properties requests, including live `QSYS2.SYSSCHEMAS` row counts and returned schema names.
+- Add regression coverage for the exact pgAdmin 9.17 schema nodes shape containing the nested catalog macro.
+
 ## 0.1.11 - 2026-08-12
+
+- Prevent pgAdmin schema queries containing nested `pg_class` catalog macros from being claimed by the table adapter.
+- Prefer `relnamespace=<schema OID>` over embedded `nspname='pg_catalog'` predicates for table browser resolution.
+- Emit INFO diagnostics for pgAdmin table count/nodes catalog requests.
+
+## 0.1.10 - 2026-08-12
 
 - Virtualize pgAdmin's pgAgent capability probe and return `has_priviledge=false` locally.
 - Prevent PostgreSQL `has_*_privilege` metadata functions from leaking to Db2 for i.
 - Correct live table discovery to use documented `QSYS2.SYSTABLES.FILE_TYPE='D'` with `TABLE_TYPE IN ('T','P')`.
 - Support legacy pre-0.1.8 row-number schema OIDs in addition to stable schema OIDs.
-- Add DEBUG diagnostics for pgAdmin table catalog request kind, schema resolution and table count.
-- Add regression checks for the exact pgAgent query and IBM i catalog filter.
+- Add diagnostics for pgAdmin table catalog request kind, schema resolution and table count.
 
 ## 0.1.9 - 2026-08-11
 
@@ -15,8 +32,6 @@
 - Added top-level `SELECT EXISTS(...)` rewrite using a Db2 searched CASE and `SYSIBM.SYSDUMMY1`.
 - Added service-user-aware handling of pgAdmin `ALTER TABLE ... OWNER TO ...` and tightly scoped CREATE TABLE batches.
 - Added build-time pgAdmin table-browser and DDL/scalar translation regression gates.
-
-# Changelog
 
 ## 0.1.8 - 2026-08-11
 

@@ -83,10 +83,15 @@ const storageLimit = process.env.MAPEPIRE_JDBC_QUERY_STORAGE_LIMIT?.trim();
 if (storageLimit) jdbc['query storage limit'] = storageLimit;
 
 const tlsEnabled = bool('PG_TLS_ENABLED', false);
+const ibmiRdbName = required('IBMI_RDB_NAME').toUpperCase();
 
 export const config = {
   pg: {
     host: str('PG_LISTEN_HOST', '0.0.0.0'),
+    // One proxy instance represents one IBM i relational database. Expose that
+    // RDB as the single PostgreSQL database rather than accepting arbitrary
+    // StartupMessage database labels.
+    databaseName: ibmiRdbName,
     port: num('PG_LISTEN_PORT', 5432),
     serverVersion: str('PG_SERVER_VERSION', '14.0'),
     maxClients: num('PG_MAX_CLIENTS', 100),
@@ -106,6 +111,7 @@ export const config = {
       : undefined,
   },
   ibmi: {
+    rdbName: ibmiRdbName,
     host: required('IBMI_HOST'),
     port: num('MAPEPIRE_PORT', 8076),
     user: required('IBMI_USER'),

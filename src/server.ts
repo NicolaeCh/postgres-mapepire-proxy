@@ -41,6 +41,22 @@ export function createPgServer(pool: SessionJobPool, logger: Logger) {
       },
       async onAuthenticated(state: any) {
         const parameters = state.clientInfo?.parameters ?? {};
+        const requestedDatabase = String(parameters.database ?? '').trim();
+        if (requestedDatabase && requestedDatabase.toUpperCase() !== config.pg.databaseName.toUpperCase()) {
+          connection.sendError({
+            severity: 'FATAL',
+            code: '3D000',
+            message: `database "${requestedDatabase}" does not exist`,
+            detail: `This proxy exposes the IBM i relational database ${config.pg.databaseName}.`,
+          });
+          connection.socket.destroy();
+          return;
+        }
+        // Normalize the PostgreSQL database identity to the configured IBM i
+        // RDB name. The Mapepire connection itself already targets this IBM i
+        // database endpoint; the StartupMessage database is a PostgreSQL-facing
+        // identity, not a second Mapepire connection selector.
+        parameters.database = config.pg.databaseName;
         session = new ProxySession(connection, pool, {
           user: parameters.user,
           database: parameters.database,

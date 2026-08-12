@@ -4,13 +4,13 @@ This is intentionally separate from the technical specification.
 
 ## pgAdmin 9.17 compatibility setting
 
-For release 0.1.11, set the following explicitly in `.env`:
+For release 0.1.12, set the following explicitly in `.env`:
 
 ```dotenv
 PG_SERVER_VERSION=14.0
 ```
 
-Do not carry forward a decorated value such as `16.4 (...)` from an older `.env`. pgAdmin branches its startup/catalog behavior based on the PostgreSQL server version advertised in protocol `ParameterStatus`; the 0.1.11 compatibility contract is validated with the numeric `14.0` profile.
+Do not carry forward a decorated value such as `16.4 (...)` from an older `.env`. pgAdmin branches its startup/catalog behavior based on the PostgreSQL server version advertised in protocol `ParameterStatus`; the 0.1.12 compatibility contract is validated with the numeric `14.0` profile.
 
 For protocol-level diagnostics, temporarily set `PG_PROTOCOL_TRACE=true`. This logs frontend message types and connection metadata but not SQL text. If pgAdmin encounters a Db2/SQL compatibility failure, `SQL_LOG_FAILED_TEXT=true` can additionally log the failed SQL; restore it to `false` immediately after diagnosis because SQL literals may contain sensitive data.
 
@@ -66,6 +66,7 @@ Do not bake credentials into the image.
 Minimum required values:
 
 ```dotenv
+IBMI_RDB_NAME=MYRDB
 IBMI_HOST=10.0.0.50
 MAPEPIRE_PORT=8076
 IBMI_USER=PGPROXY
@@ -135,19 +136,19 @@ The compose definition mounts `./certs` read-only at `/app/certs`.
 
 ```bash
 podman pull node:24-bookworm-slim
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.11 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.12 .
 ```
 
 ### Docker
 
 ```bash
 docker pull node:24-bookworm-slim
-docker build -t postgres-mapepire-proxy:0.1.11 .
+docker build -t postgres-mapepire-proxy:0.1.12 .
 ```
 
 The `Dockerfile` accepts `--build-arg NODE_IMAGE=...` if an exact tested tag/digest must be pinned. Keep the image on Node 24 LTS and verify that the chosen manifest contains both `linux/amd64` and `linux/ppc64le`.
 
-Before TypeScript compilation, a successful 0.1.11 build must print all four runtime dependency checks:
+Before TypeScript compilation, a successful 0.1.12 build must print all four runtime dependency checks:
 
 ```text
 Mapepire runtime module check OK
@@ -182,7 +183,7 @@ podman run -d \
   -p 8080:8080 \
   -v ./certs:/app/certs:ro,Z \
   --restart=unless-stopped \
-  postgres-mapepire-proxy:0.1.11
+  postgres-mapepire-proxy:0.1.12
 ```
 
 ### Compose
@@ -198,7 +199,7 @@ docker compose up -d
 ### Docker buildx
 
 ```bash
-IMAGE=registry.example.com/db/postgres-mapepire-proxy:0.1.11 \
+IMAGE=registry.example.com/db/postgres-mapepire-proxy:0.1.12 \
   ./scripts/build-multiarch-docker.sh
 ```
 
@@ -210,8 +211,8 @@ On builders capable of producing both target architectures:
 
 ```bash
 ./scripts/build-multiarch-podman.sh
-podman manifest push --all postgres-mapepire-proxy:0.1.11 \
-  docker://registry.example.com/db/postgres-mapepire-proxy:0.1.11
+podman manifest push --all postgres-mapepire-proxy:0.1.12 \
+  docker://registry.example.com/db/postgres-mapepire-proxy:0.1.12
 ```
 
 For production PPC64LE it is often preferable to build the PPC64LE image natively on IBM Power rather than through QEMU emulation.
@@ -252,7 +253,8 @@ Create a PostgreSQL connection:
 
 - Host: proxy host
 - Port: 5432
-- Database: `ibmi` (logical; the Db2 schema comes from `DEFAULT_SCHEMA` or qualified SQL)
+- Maintenance database / Database: the value of `IBMI_RDB_NAME` (the IBM i *LOCAL RDB name from `WRKRDBDIRE`)
+- IBM i default SQL schema/library: configured separately as `DEFAULT_SCHEMA`; do not put the library name in pgAdmin's Maintenance database field
 - User: `PG_PROXY_USER`
 - Password: `PG_PROXY_PASSWORD`
 
@@ -291,3 +293,10 @@ SIGTERM triggers graceful socket shutdown, session rollback/release and Mapepire
 - `SET statement_timeout`, `lock_timeout` and `idle_in_transaction_session_timeout` are compatibility no-ops and do not interrupt an executing IBM i statement. Use IBM i/Db2 controls such as Query Supervisor where hard execution governance is required.
 - Savepoints are rejected with `0A000`; use top-level `BEGIN`/`COMMIT`/`ROLLBACK`.
 - The shipped `package.json` pins direct dependencies, but the delivery workspace could not generate a verified npm lockfile. For a controlled production build, run `npm install`, validate, then retain the generated `package-lock.json` for subsequent `npm ci` builds.
+
+### pgAdmin database naming
+
+For this proxy, use the IBM i *LOCAL RDB name as pgAdmin's **Maintenance database**. Example: if `WRKRDBDIRE` shows local RDB `POWER11A` and the application library is `MONAI`, configure `IBMI_RDB_NAME=POWER11A`, `DEFAULT_SCHEMA=MONAI`, and enter `POWER11A` as Maintenance database in pgAdmin.
+
+The RDB name is a PostgreSQL-facing identity in this implementation; the Mapepire WebSocket endpoint is still selected by `IBMI_HOST`/`MAPEPIRE_PORT`. One proxy instance does not route a client-supplied database name to arbitrary RDB directory entries.
+

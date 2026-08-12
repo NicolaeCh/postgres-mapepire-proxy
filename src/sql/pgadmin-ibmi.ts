@@ -37,7 +37,9 @@ const int8 = (name: string) => field(name, OID.int8, 8);
  */
 export function classifyPgAdminIbmiSchemaQuery(sql: string): PgAdminIbmiSchemaRequest | undefined {
   const s = compact(sql);
-  if (!/\b(?:pg_catalog\.)?pg_namespace\b/i.test(s) && !/\bpg_default_acl\b/i.test(s)) return undefined;
+  const primaryNamespace = primaryFromPgNamespace(s);
+  const defaultAcl = /\bpg_default_acl\b/i.test(s);
+  if (!primaryNamespace && !defaultAcl) return undefined;
 
   // ACL/default-ACL queries must be recognized before pg_roles or pg_namespace
   // generic handlers because pgAdmin requires exact dictionary keys.
@@ -48,7 +50,7 @@ export function classifyPgAdminIbmiSchemaQuery(sql: string): PgAdminIbmiSchemaRe
     return { kind: 'acl' };
   }
 
-  if (/\bnsptyp\b/i.test(s) && /\bnamespaceowner\b/i.test(s)) {
+  if (primaryNamespace && /\bnsptyp\b/i.test(s) && /\bnamespaceowner\b/i.test(s)) {
     const oid = extractOidPredicate(s);
     // properties.sql imports CATALOGS.LIST, whose nested predicates include
     // nspname='pg_catalog'.  When pgAdmin supplies scid, that numeric OID is
@@ -60,25 +62,35 @@ export function classifyPgAdminIbmiSchemaQuery(sql: string): PgAdminIbmiSchemaRe
     };
   }
 
-  if (/\bas\s+schema_name\b/i.test(s) && /\bas\s+is_catalog\b/i.test(s) && /\bas\s+db_support\b/i.test(s)) {
+  if (primaryNamespace && /\bas\s+schema_name\b/i.test(s) && /\bas\s+is_catalog\b/i.test(s) && /\bas\s+db_support\b/i.test(s)) {
     const oid = extractOidPredicate(s);
     if (oid !== undefined) return { kind: 'isCatalog', oid };
   }
 
-  if (/^select\s+(?:[a-z_][a-z0-9_$]*\.)?oid\b/i.test(s) && /\bnspname\s*=\s*'/i.test(s)) {
+  if (primaryNamespace && /\bcount\s*\(\s*\*\s*\)/i.test(s)) return { kind: 'count' };
+
+  // pgAdmin nodes.sql starts with SELECT nsp.oid and its CATALOGS.LIST macro
+  // contains nspname='pg_catalog'. It must be recognized before the narrow
+  // OID-by-name lookup below or the whole schema list is mistaken for a lookup
+  // of PG_CATALOG and pgAdmin silently renders an empty Schemas collection.
+  if (primaryNamespace && /\bhas_schema_privilege\s*\(/i.test(s) && /\bas\s+can_create\b/i.test(s) && /\bas\s+has_usage\b/i.test(s)) {
+    return { kind: 'nodes' };
+  }
+
+  // Post-create/simple lookup only: require OID to be the sole top-level select
+  // item immediately followed by FROM pg_namespace. This deliberately excludes
+  // pgAdmin nodes.sql, which selects several columns and embeds pg_catalog in a
+  // nested catalog-exclusion macro.
+  if (primaryNamespace && /^select\s+(?:[a-z_][a-z0-9_$]*\.)?oid\s+from\s+(?:pg_catalog\.)?pg_namespace\b/i.test(s)
+      && /\bnspname\s*=\s*'/i.test(s)) {
     const name = extractNamePredicate(s);
     if (name !== undefined) return { kind: 'oidByName', name };
   }
 
-  if (/^select\s+(?:[a-z_][a-z0-9_$]*\.)?nspname\b/i.test(s) && /\boid\s*=\s*\d+/i.test(s)) {
+  if (primaryNamespace && /^select\s+(?:[a-z_][a-z0-9_$]*\.)?nspname\s+from\s+(?:pg_catalog\.)?pg_namespace\b/i.test(s)
+      && /\boid\s*=\s*\d+/i.test(s)) {
     const oid = extractOidPredicate(s);
     if (oid !== undefined) return { kind: 'nameByOid', oid };
-  }
-
-  if (/\bcount\s*\(\s*\*\s*\)/i.test(s)) return { kind: 'count' };
-
-  if (/\bhas_schema_privilege\s*\(/i.test(s) && /\bas\s+can_create\b/i.test(s) && /\bas\s+has_usage\b/i.test(s)) {
-    return { kind: 'nodes' };
   }
 
   return undefined;
@@ -334,6 +346,13 @@ function decodeAuthorization(raw: string): string {
 
 function quoteDb2Identifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
+}
+
+function primaryFromPgNamespace(sql: string): boolean {
+  // pgAdmin schema count/nodes/properties templates all use pg_namespace as
+  // their top-level FROM relation. Nested pg_namespace references in table or
+  // other catalog queries must not be mistaken for schema-browser requests.
+  return /\bfrom\s+(?:pg_catalog\.)?pg_namespace(?:\s+(?:as\s+)?[a-z_][a-z0-9_$]*)?/i.test(sql);
 }
 
 function compact(sql: string): string {
