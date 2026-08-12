@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.16 reference implementation**
+Version: **0.1.17 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.16 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.16.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.17.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 
@@ -70,6 +70,13 @@ See `docs/VALIDATION.md`. This build environment could not resolve npm packages 
 - The build stage supplies synthetic non-secret configuration (`IBMI_RDB_NAME=BUILDTEST`, fake host/user/password) solely to compiled contract tests.
 - `verify-pgadmin-wire.mjs` also self-seeds `IBMI_RDB_NAME` before dynamically importing runtime configuration, so it can be run directly outside a container.
 - Runtime behavior is unchanged: the final image still requires the real `IBMI_RDB_NAME`, `IBMI_HOST`, `IBMI_USER`, and `IBMI_PASSWORD` from the deployment environment.
+
+### 0.1.17 pgAdmin Columns OID and IBM i index discovery
+
+- Corrects pgAdmin 9.16+ Columns `nodes.sql` classification so the required `oid` field is returned.
+- Keeps `QSYS2.SYSINDEXES` as the primary SQL-index source.
+- Falls back to `QSYS2.SYSTABLEINDEXSTAT` for IBM i `INDEX` and DDS `LOGICAL` access paths when the SQL index catalog is empty.
+- Adds a build-time regression for the current pgAdmin Columns node SQL shape.
 
 ### 0.1.16 pgAdmin Columns, Indexes and Views
 

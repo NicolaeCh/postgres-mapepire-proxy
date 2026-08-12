@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyPgAdminTableChildQuery, renderColumnQuery, renderIndexQuery,
-  renderEmptyTableChild, IBMI_COLUMN_CATALOG_SQL, IBMI_INDEX_CATALOG_SQL,
+  renderEmptyTableChild, IBMI_COLUMN_CATALOG_SQL, IBMI_INDEX_CATALOG_SQL, IBMI_NATIVE_INDEX_CATALOG_SQL,
 } from '../src/sql/pgadmin-ibmi-table-child.js';
 import { classifyPgAdminIbmiTableQuery, tableOid } from '../src/sql/pgadmin-ibmi-table.js';
 
@@ -18,6 +18,8 @@ describe('pgAdmin IBM i table-child contracts', () => {
   it('uses IBM i single-table column and index catalogs', () => {
     expect(IBMI_COLUMN_CATALOG_SQL).toContain('QSYS2.SYSCOLUMNS2');
     expect(IBMI_INDEX_CATALOG_SQL).toContain('QSYS2.SYSINDEXES');
+    expect(IBMI_NATIVE_INDEX_CATALOG_SQL).toContain('QSYS2.SYSTABLEINDEXSTAT');
+    expect(IBMI_NATIVE_INDEX_CATALOG_SQL).toContain("INDEX_TYPE IN ('INDEX', 'LOGICAL')");
   });
 
   it('recognizes pgAdmin 9.17 Columns nodes and emits required keys', () => {
@@ -34,6 +36,43 @@ describe('pgAdmin IBM i table-child contracts', () => {
     expect(result.rows[0]?.[0]).toBe('ID');
   });
 
+
+  it('recognizes the real pgAdmin 9.16+ Columns nodes shape even though it references attidentity', () => {
+    const req = classifyPgAdminTableChildQuery(`SELECT DISTINCT att.attname as name, att.attnum as OID,
+      pg_catalog.format_type(ty.oid,NULL) AS datatype,
+      pg_catalog.format_type(ty.oid,att.atttypmod) AS displaytypname,
+      att.attnotnull as not_null,
+      CASE WHEN att.atthasdef OR att.attidentity != '' OR ty.typdefault IS NOT NULL THEN True
+           ELSE False END as has_default_val, des.description, seq.seqtypid
+      FROM pg_catalog.pg_attribute att
+      JOIN pg_catalog.pg_type ty ON ty.oid=atttypid
+      LEFT OUTER JOIN pg_catalog.pg_sequence seq ON true
+      WHERE att.attrelid = ${tid}::oid AND att.attnum > 0 AND att.attisdropped IS FALSE
+      ORDER BY att.attnum`);
+    expect(req?.kind).toBe('columnNodes');
+    const result = renderColumnQuery(req as any, columns);
+    expect(result.fields.map((f) => f.name)).toContain('oid');
+    expect(result.rows[0]?.[1]).toBe(1);
+  });
+
+  it('still recognizes the pgAdmin Columns properties contract', () => {
+    const req = classifyPgAdminTableChildQuery(`SELECT DISTINCT ON (att.attnum)
+      att.attname as name, att.atttypid, att.attlen, att.attnum, att.attndims,
+      att.atttypmod, att.attnotnull, att.attidentity,
+      (CASE WHEN (att.attidentity in ('a','d')) THEN 'i' ELSE 'n' END) AS colconstype,
+      (CASE WHEN tab.relkind = 'v' THEN true ELSE false END) AS is_view_only,
+      att.attcompression
+      FROM pg_catalog.pg_attribute att
+      JOIN pg_catalog.pg_type ty ON ty.oid=atttypid
+      LEFT JOIN pg_catalog.pg_class tab ON tab.oid=att.attrelid
+      WHERE att.attrelid = ${tid}::oid AND att.attnum = 1::int
+        AND att.attisdropped IS FALSE ORDER BY att.attnum`);
+    expect(req?.kind).toBe('columnProperties');
+    expect((req as any).columnNumber).toBe(1);
+    const result = renderColumnQuery(req as any, columns);
+    expect(result.rows).toHaveLength(1);
+    expect(result.fields.map((f) => f.name)).toContain('atttypid');
+  });
 
   it('does not steal a normal Tables nodes query that contains nested pg_trigger counts', () => {
     const req = classifyPgAdminTableChildQuery(`SELECT rel.oid, rel.relname AS name,

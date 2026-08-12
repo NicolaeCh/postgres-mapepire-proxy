@@ -50,6 +50,26 @@ export const IBMI_INDEX_CATALOG_SQL = `SELECT INDEX_SCHEMA, INDEX_NAME, INDEX_OW
  WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
  ORDER BY INDEX_NAME`;
 
+/**
+ * QSYS2.SYSINDEXES is SQL CREATE INDEX metadata.  When it is empty,
+ * SYSTABLEINDEXSTAT is the broader IBM i table-index service: it reports SQL
+ * indexes, DDS logical-file access paths, and constraint-maintained access
+ * paths.  pgAdmin has separate constraint collections, so expose only INDEX
+ * and LOGICAL rows below its Indexes collection.
+ */
+export const IBMI_NATIVE_INDEX_CATALOG_SQL = `SELECT INDEX_SCHEMA, INDEX_NAME,
+       CAST('' AS VARCHAR(128)) AS INDEX_OWNER,
+       TABLE_SCHEMA, TABLE_NAME,
+       CASE WHEN UNIQUE IN ('0', '1') THEN 'U' ELSE 'D' END AS IS_UNIQUE,
+       NUMBER_KEY_COLUMNS AS COLUMN_COUNT,
+       CAST(NULL AS VARCHAR(2000)) AS LONG_COMMENT,
+       CAST(INDEX_TYPE CONCAT CASE WHEN COLUMN_NAMES IS NULL OR COLUMN_NAMES = ''
+             THEN '' ELSE ': ' CONCAT COLUMN_NAMES END AS VARCHAR(2000)) AS INDEX_TEXT
+  FROM QSYS2.SYSTABLEINDEXSTAT
+ WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+   AND INDEX_TYPE IN ('INDEX', 'LOGICAL')
+ ORDER BY INDEX_NAME`;
+
 export type PgAdminTableChildRequest =
   | { kind: 'columnCount'; tableOid: number }
   | { kind: 'columnNodes'; tableOid: number; columnNumber?: number }
@@ -91,13 +111,27 @@ export function classifyPgAdminTableChildQuery(sql: string): PgAdminTableChildRe
         /\batt\s*\.\s*attnum\s*=\s*'?([0-9]+)'?/i,
         /\battnum\s*=\s*'?([0-9]+)'?/i,
       ]);
-      if (/\battidentity\b/i.test(s) || /\bis_view_only\b/i.test(s) || /\bcolconstype\b/i.test(s)) {
+
+      // pgAdmin 9.16+ rebased the Columns nodes template and the NODES query
+      // itself now references att.attidentity while calculating
+      // has_default_val.  Therefore attidentity is NOT a safe properties
+      // discriminator.  The stable nodes contract explicitly projects
+      // att.attnum AS oid and has_default_val; recognize that contract first.
+      const isNodesContract = /\batt\s*\.\s*attnum\s+as\s+oid\b/i.test(s)
+        || /\bhas_default_val\b/i.test(s);
+      if (isNodesContract) return { kind: 'columnNodes', tableOid, columnNumber };
+
+      // Properties contains the wide attribute/type payload used by the
+      // properties panel.  These markers do not occur in pgAdmin's nodes.sql.
+      if (/\bcolconstype\b/i.test(s) || /\bis_view_only\b/i.test(s)
+          || /\battcompression\b/i.test(s) || /\battndims\b/i.test(s)
+          || /\batttypid\b/i.test(s)) {
         return { kind: 'columnProperties', tableOid, columnNumber };
       }
-      // Once scoped to a concrete parent OID, remaining pg_attribute browser
-      // reads are column-node requests.  Keeping this broad also covers minor
-      // pgAdmin template changes across supported PostgreSQL compatibility
-      // versions.
+
+      // Once scoped to a concrete parent OID, default to nodes. This is safer
+      // for browser compatibility because pgAdmin's nodes() Python path
+      // requires an `oid` key for every returned row.
       return { kind: 'columnNodes', tableOid, columnNumber };
     }
   }

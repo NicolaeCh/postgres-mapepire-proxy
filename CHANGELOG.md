@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.17 - 2026-08-12
+
+- Fixed pgAdmin 9.16+ Columns nodes being misclassified as column properties because the nodes SQL itself references `att.attidentity`; node requests now return the required `oid` field.
+- Added regression coverage using pgAdmin's current Columns `nodes.sql` shape.
+- Kept `QSYS2.SYSINDEXES` as the authoritative SQL `CREATE INDEX` catalog and added a `QSYS2.SYSTABLEINDEXSTAT` fallback for IBM i SQL-index and DDS logical-file access paths when `SYSINDEXES` returns no rows.
+- The fallback exposes only `INDEX` and `LOGICAL` rows under pgAdmin Indexes; primary/unique/referential constraint access paths remain separate from the Indexes collection.
+- Added explicit logging when the table-index-statistics fallback is used or cannot be queried.
+
 ## 0.1.16 - 2026-08-12
 
 - Fixed pgAdmin Columns and Indexes collections being absent even though live IBM i node adapters existed: pgAdmin `has_nodes()` count requests are now intercepted and answered from `QSYS2.SYSCOLUMNS2` and `QSYS2.SYSINDEXES`.

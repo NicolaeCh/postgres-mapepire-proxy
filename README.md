@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.16 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.16
+podman build -t postgres-mapepire-proxy:0.1.17 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.17
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -87,9 +87,9 @@ This is intentionally a **compatibility proxy**, not an implementation of the Po
 
 
 
-## pgAdmin Columns, Indexes and Views (0.1.16)
+## pgAdmin Columns, Indexes and Views (0.1.17)
 
-Release 0.1.16 completes the live IBM i browser path for table metadata. pgAdmin first executes a `count.sql`/`has_nodes()` probe before showing the **Columns** or **Indexes** collection; those probes are now answered from live `QSYS2.SYSCOLUMNS2` and `QSYS2.SYSINDEXES` rows, and expanding the collection returns the corresponding IBM i metadata.
+Release 0.1.17 fixes the pgAdmin 9.16+ Columns node contract and extends IBM i index discovery. pgAdmin first executes a `count.sql`/`has_nodes()` probe before showing the **Columns** or **Indexes** collection; those probes are answered from live IBM i metadata. Columns use `QSYS2.SYSCOLUMNS2`. Indexes use `QSYS2.SYSINDEXES` first and, when that SQL `CREATE INDEX` catalog is empty, fall back to `QSYS2.SYSTABLEINDEXSTAT` for `INDEX` and DDS `LOGICAL` access paths.
 
 The **Views** collection is now backed by live IBM i catalogs. SQL views are discovered with `QSYS2.SYSTABLES` where `TABLE_TYPE='V'` and enriched from `QSYS2.SYSVIEWS`, including the view definition. Views receive stable virtual PostgreSQL OIDs, so their **Columns** collection is resolved through the same `QSYS2.SYSCOLUMNS2` path as table columns. A pgAdmin refresh therefore exposes views created directly on IBM i with `CREATE VIEW`.
 

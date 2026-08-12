@@ -38,7 +38,7 @@ import {
   type IbmiTableRow,
 } from '../sql/pgadmin-ibmi-table.js';
 import {
-  classifyPgAdminTableChildQuery, IBMI_COLUMN_CATALOG_SQL, IBMI_INDEX_CATALOG_SQL,
+  classifyPgAdminTableChildQuery, IBMI_COLUMN_CATALOG_SQL, IBMI_INDEX_CATALOG_SQL, IBMI_NATIVE_INDEX_CATALOG_SQL,
   renderColumnQuery, renderIndexQuery, renderEmptyTableChild,
   type IbmiColumnRow, type IbmiIndexRow,
 } from '../sql/pgadmin-ibmi-table-child.js';
@@ -788,10 +788,8 @@ export class ProxySession {
     })).filter((row: IbmiColumnRow) => row.name.length > 0 && row.ordinal > 0);
   }
 
-  private async fetchIbmiIndexes(schemaName: string, tableName: string): Promise<IbmiIndexRow[]> {
-    const result = await this.executePaged(IBMI_INDEX_CATALOG_SQL, [schemaName, tableName], 0);
-    if (!this.inTransaction) await this.currentJob().execute('COMMIT');
-    return result.data.map((row: Record<string, unknown>) => ({
+  private mapIbmiIndexRows(data: Record<string, unknown>[]): IbmiIndexRow[] {
+    return data.map((row: Record<string, unknown>) => ({
       schema: String(caseInsensitiveValue(row, 'TABLE_SCHEMA') ?? '').trim(),
       table: String(caseInsensitiveValue(row, 'TABLE_NAME') ?? '').trim(),
       indexSchema: String(caseInsensitiveValue(row, 'INDEX_SCHEMA') ?? '').trim(),
@@ -802,6 +800,37 @@ export class ProxySession {
       longComment: nullableString(caseInsensitiveValue(row, 'LONG_COMMENT')),
       text: nullableString(caseInsensitiveValue(row, 'INDEX_TEXT')),
     })).filter((row: IbmiIndexRow) => row.name.length > 0);
+  }
+
+  private async fetchIbmiIndexes(schemaName: string, tableName: string): Promise<IbmiIndexRow[]> {
+    const result = await this.executePaged(IBMI_INDEX_CATALOG_SQL, [schemaName, tableName], 0);
+    if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+    let rows = this.mapIbmiIndexRows(result.data);
+
+    // QSYS2.SYSINDEXES is the SQL CREATE INDEX catalog. If it is empty, use
+    // QSYS2.SYSTABLEINDEXSTAT, which also reports DDS logical-file access
+    // paths. Constraint access paths are intentionally excluded by that query
+    // because pgAdmin exposes constraints in separate browser collections.
+    if (rows.length === 0) {
+      try {
+        const native = await this.executePaged(IBMI_NATIVE_INDEX_CATALOG_SQL, [schemaName, tableName], 0);
+        if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+        rows = this.mapIbmiIndexRows(native.data);
+        if (rows.length > 0) {
+          this.logger.info('Using IBM i table index statistics fallback for pgAdmin Indexes', {
+            schema: schemaName, table: tableName, indexCount: rows.length,
+          });
+        }
+      } catch (error) {
+        // Do not break pgAdmin browsing if the broader service is unavailable;
+        // preserve the authoritative (empty) SYSINDEXES result instead.
+        this.logger.warn('IBM i table index statistics fallback query failed', {
+          schema: schemaName, table: tableName,
+          error: String((error as Error)?.message ?? error),
+        });
+      }
+    }
+    return rows;
   }
 
   private async executeCreateSchema(plan: CreateSchemaPlan): Promise<void> {
