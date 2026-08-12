@@ -5,7 +5,7 @@ FROM ${NODE_IMAGE} AS build
 WORKDIR /app
 
 COPY package*.json ./
-COPY scripts/verify-runtime-modules.mjs scripts/verify-pgadmin-compat.mjs scripts/verify-pgadmin-wire.mjs scripts/verify-startup-wire.mjs scripts/verify-pgadmin-browser.mjs scripts/verify-pgadmin-schema.mjs ./scripts/
+COPY scripts/verify-runtime-modules.mjs scripts/verify-pgadmin-compat.mjs scripts/verify-pgadmin-wire.mjs scripts/verify-startup-wire.mjs scripts/verify-pgadmin-browser.mjs scripts/verify-pgadmin-schema.mjs scripts/verify-pgadmin-table.mjs scripts/verify-sql-translation.mjs ./scripts/
 RUN npm install --ignore-scripts \
  && node scripts/verify-runtime-modules.mjs
 COPY tsconfig.json eslint.config.js .prettierrc.json ./
@@ -15,7 +15,9 @@ RUN npm run build \
  && node scripts/verify-pgadmin-wire.mjs \
  && node scripts/verify-startup-wire.mjs \
  && node scripts/verify-pgadmin-browser.mjs \
- && node scripts/verify-pgadmin-schema.mjs
+ && node scripts/verify-pgadmin-schema.mjs \
+ && node scripts/verify-pgadmin-table.mjs \
+ && node scripts/verify-sql-translation.mjs
 RUN npm prune --omit=dev
 
 FROM ${NODE_IMAGE} AS runtime

@@ -109,3 +109,14 @@ pgAdmin IBM i schema contract check OK
 ```
 
 On a live IBM i endpoint, register the server and verify: the Dashboard no longer returns `chart_data` HTTP 500 errors; Roles/Tablespaces do not fail on missing `description`; the Database SQL tab does not fail on a missing ACL `grantor`; expand Schemas and verify the expected IBM i SQL schemas from `QSYS2.SYSSCHEMAS`; select the SQL/Properties tabs for an application schema; create a test schema with only Name/Owner set and leave Comment/Privileges/Default privileges/Security labels empty; refresh and verify the new schema appears; remove the test schema with an IBM i-native administration tool until DROP SCHEMA support is qualified in the proxy.
+
+## pgAdmin table browser / SERIAL qualification (0.1.9)
+
+A successful container build must additionally print:
+
+```text
+pgAdmin IBM i table browser contract check OK
+PostgreSQL-to-Db2 DDL/scalar translation check OK
+```
+
+Live acceptance sequence: connect pgAdmin -> expand a live IBM i schema -> expand Tables -> verify existing tables -> create a basic table with a SERIAL identity -> refresh Tables -> execute INSERT/SELECT/DELETE against it.

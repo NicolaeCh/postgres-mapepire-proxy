@@ -67,3 +67,9 @@ Decision: 5.4.0. It is used as a secondary classifier, not as a complete Postgre
 - pgAdmin REL-9_17 DBMS job scheduler backend check: scalar `COUNT(*)` extension probe.
 - IBM Db2 for i `QSYS2.SYSSCHEMAS`: live schema names/owners/text.
 - IBM Db2 for i `CREATE SCHEMA`: service-profile ownership/authorization semantics.
+
+## Sources added for 0.1.9
+
+- pgAdmin 4 REL-9_17 table `count.sql`, `nodes.sql`, `properties.sql`, `get_schema_oid.sql`, `get_table.sql`, and table view implementation.
+- IBM Db2 for i `QSYS2.SYSTABLES` catalog documentation.
+- IBM Db2 for i CREATE TABLE / identity-column documentation.

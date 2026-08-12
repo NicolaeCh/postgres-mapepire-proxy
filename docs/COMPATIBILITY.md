@@ -69,3 +69,7 @@ The proxy advertises PostgreSQL 14.0 by default for the tested pgAdmin 9.17 comp
 ## pgAdmin 4 9.17 database/schema browser — version 0.1.8
 
 0.1.8 extends pgAdmin qualification from connection establishment to the database/schema browser. PostgreSQL-only dashboard/ACL/role/tablespace contracts remain virtual, while schema names and schema text are sourced from live IBM i `QSYS2.SYSSCHEMAS`. Basic schema creation from pgAdmin is supported when Comment, Privileges, Default privileges, and Security labels are left empty. The PostgreSQL `AUTHORIZATION` role is not propagated to IBM i; DDL runs under the configured Mapepire service profile.
+
+## pgAdmin Tables / CREATE TABLE — version 0.1.9
+
+Supported: live table enumeration for IBM i `T`/`P` table-like objects, table node/property identity, basic CREATE TABLE, PostgreSQL SERIAL/SMALLSERIAL/BIGSERIAL identity semantics, and pgAdmin's virtual OWNER follow-up. PostgreSQL table inheritance, partitions, row-security, logical replication, PostgreSQL tablespaces/storage parameters and PostgreSQL privilege metadata are not claimed as IBM i equivalents.

@@ -156,3 +156,9 @@ node scripts/verify-pgadmin-schema.mjs
 ```
 
 These verify the exact aliases/cardinality that pgAdmin dereferences and the IBM i-backed schema contract.
+
+## 0.1.9 table browser contract
+
+pgAdmin's Tables collection is backed by live `QSYS2.SYSTABLES` data instead of the generic virtual `pg_class` rewrite. The adapter handles pgAdmin 9.17 table count, node, property, table-name/OID, and schema-for-table queries with stable synthetic OIDs. PostgreSQL-only trigger, inheritance, toast, replication and storage properties are returned conservatively as zero/false/null where they have no IBM i equivalent.
+
+For normal table creation, PostgreSQL SERIAL-family pseudo-types are mapped to Db2 for i identity columns. PostgreSQL table OWNER is virtual because all backend DDL uses the configured IBM i Mapepire service profile.

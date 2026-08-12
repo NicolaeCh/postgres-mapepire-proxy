@@ -22,9 +22,18 @@ import {
   isPgSchemaPrivilegeDdl,
   planPgCreateSchema,
   renderPgAdminIbmiSchemaQuery,
+  schemaOid as schemaOidForSession,
   type CreateSchemaPlan,
   type IbmiSchemaRow,
 } from '../sql/pgadmin-ibmi.js';
+import {
+  classifyPgAdminIbmiTableQuery,
+  isBasicPgTableCommentDdl,
+  isPgCreateTable,
+  parsePgTableOwnerDdl,
+  renderPgAdminIbmiTableQuery,
+  type IbmiTableRow,
+} from '../sql/pgadmin-ibmi-table.js';
 import { reorderParameters, translateSql, type Translation } from '../sql/translator.js';
 
 interface PreparedStatement { sql: string; parameterOids: number[]; translation?: Translation; }
@@ -276,6 +285,26 @@ export class ProxySession {
             this.send(readyForQuery(this.txStatus()));
             return;
           }
+
+          if (batch.some((item) => isPgCreateTable(item))) {
+            // pgAdmin commonly appends ALTER TABLE .. OWNER TO after CREATE.
+            // Ownership cannot be mapped to the PostgreSQL login because IBM i
+            // uses the configured Mapepire service profile.  Accept only a
+            // tightly-scoped DDL batch: CREATE TABLE + virtual OWNER + basic
+            // table/column COMMENT statements. Reject everything else before
+            // creating the table to avoid partial-success GUI operations.
+            const supported = batch.every((item) =>
+              isPgCreateTable(item) || parsePgTableOwnerDdl(item) !== undefined || isBasicPgTableCommentDdl(item));
+            if (!supported) {
+              throw sqlError(
+                '0A000',
+                'pgAdmin table batch contains PostgreSQL-only table options not supported by the IBM i service-user proxy; create the table without privileges, security labels, row security, storage or PostgreSQL table options',
+              );
+            }
+            for (const item of batch) await this.executeSql(item, [], 0);
+            this.send(readyForQuery(this.txStatus()));
+            return;
+          }
           // Fall through to the normal path, which will enforce
           // SQL_ALLOW_MULTI_STATEMENT and reject unsafe/general batches.
           await this.executeSql(sql, [], 0);
@@ -311,6 +340,17 @@ export class ProxySession {
         '0A000',
         'PostgreSQL schema GRANT/REVOKE/default privileges are not mapped to IBM i profiles when Mapepire uses a service user',
       );
+    }
+
+    const tableOwner = parsePgTableOwnerDdl(sql);
+    if (tableOwner) {
+      this.logger.debug('Mapping PostgreSQL table owner to Mapepire service-user ownership', {
+        table: tableOwner.table,
+        requestedPostgresOwner: tableOwner.requestedOwner,
+        ibmiServiceUser: config.ibmi.user,
+      });
+      this.send(commandComplete('ALTER TABLE'));
+      return;
     }
 
     if (isSavepointCommand(sql)) {
@@ -449,6 +489,28 @@ export class ProxySession {
     const env = environmentQuery(sql, this.client.database ?? 'ibmi', this.currentSchema);
     if (env) return env;
 
+    // pgAdmin table collection/browser queries need live IBM i catalog data.
+    // Resolve them before the schema and generic pg_catalog handlers: table
+    // templates embed several PostgreSQL-only subqueries (triggers, inherits,
+    // descriptions, EXISTS) which must never be forwarded to Db2 for i.
+    const tableRequest = classifyPgAdminIbmiTableQuery(sql);
+    if (tableRequest) {
+      const schemas = await this.fetchIbmiSchemas();
+      const schema = tableRequest.schemaName !== undefined
+        ? schemas.find((row) => sameSqlIdentifier(row.name, tableRequest.schemaName!))
+        : tableRequest.schemaOid !== undefined
+          ? schemas.find((row) => schemaOidForSession(row.name) === tableRequest.schemaOid)
+          : undefined;
+
+      const tables = schema ? await this.fetchIbmiTables(schema.name) : [];
+      const resolvedSchemaOid = schema
+        ? schemaOidForSession(schema.name)
+        : (tableRequest.schemaOid ?? 0);
+      return renderPgAdminIbmiTableQuery(tableRequest, tables, resolvedSchemaOid, {
+        user: this.client.user ?? config.pg.user ?? 'proxy',
+      });
+    }
+
     // Schema browser queries need live IBM i catalog data and must be resolved
     // before generic pg_roles/pg_catalog handlers can consume their subqueries.
     const schemaRequest = classifyPgAdminIbmiSchemaQuery(sql);
@@ -482,6 +544,35 @@ export class ProxySession {
 
     this.schemaCache = { expiresAt: Date.now() + config.pg.pgadminSchemaCacheMs, rows };
     return rows;
+  }
+
+  private async fetchIbmiTables(schemaName: string): Promise<IbmiTableRow[]> {
+    // QSYS2.SYSTABLES is the authoritative IBM i table catalog.  Keep this
+    // query uncached so a table created through pgAdmin is visible on the next
+    // browser refresh without waiting for a TTL.  T/P cover SQL tables and
+    // physical data files; source physical files are excluded.
+    const result = await this.executePaged(
+      `SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_OWNER, TABLE_TYPE,
+              TABLE_TEXT, LONG_COMMENT, COLUMN_COUNT
+         FROM QSYS2.SYSTABLES
+        WHERE TABLE_SCHEMA = ?
+          AND TABLE_TYPE IN ('T', 'P')
+          AND (SYSTEM_TABLE_TYPE IS NULL OR SYSTEM_TABLE_TYPE <> 'S')
+        ORDER BY TABLE_NAME`,
+      [schemaName],
+      0,
+    );
+    if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+
+    return result.data.map((row: Record<string, unknown>) => ({
+      schema: String(caseInsensitiveValue(row, 'TABLE_SCHEMA') ?? '').trim(),
+      name: String(caseInsensitiveValue(row, 'TABLE_NAME') ?? '').trim(),
+      owner: String(caseInsensitiveValue(row, 'TABLE_OWNER') ?? '').trim(),
+      type: String(caseInsensitiveValue(row, 'TABLE_TYPE') ?? '').trim(),
+      text: nullableString(caseInsensitiveValue(row, 'TABLE_TEXT')),
+      longComment: nullableString(caseInsensitiveValue(row, 'LONG_COMMENT')),
+      columnCount: Number(caseInsensitiveValue(row, 'COLUMN_COUNT') ?? 0),
+    })).filter((row: IbmiTableRow) => row.schema.length > 0 && row.name.length > 0);
   }
 
   private async executeCreateSchema(plan: CreateSchemaPlan): Promise<void> {
@@ -639,6 +730,10 @@ function frontendMessageName(type: string): string {
     Q: 'Query', P: 'Parse', B: 'Bind', D: 'Describe', E: 'Execute',
     S: 'Sync', C: 'Close', H: 'Flush', X: 'Terminate',
   } as Record<string, string>)[type] ?? type;
+}
+
+function sameSqlIdentifier(a: string, b: string): boolean {
+  return a === b || a.toUpperCase() === b.toUpperCase();
 }
 
 function caseInsensitiveValue(row: Record<string, unknown>, name: string): unknown {

@@ -21,7 +21,7 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.8 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.9 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
@@ -107,3 +107,7 @@ after `npm run build`, so a regression prevents image creation. The delivery wor
 ## 0.1.8 pgAdmin browser/schema validation
 
 The live pgAdmin 9.17 error log supplied for 0.1.7 was used to derive browser regression contracts. In the delivery workspace, 22 TypeScript source/test files pass syntax transpilation. A full TypeScript `--noEmit` check also passes against local compatibility declarations for external packages; the target container build remains the authoritative dependency-resolved check. The compiled 0.1.8 browser and schema verification scripts pass and cover dashboard `chart_data`, scheduler scalar zero, database ACL keys, database properties, role/tablespace `description`, schema node/property rows, schema ACL/default-ACL dictionaries, stable schema OIDs, and CREATE SCHEMA translation. The SELECT-without-FROM rewrite was separately exercised with top-level WHERE/GROUP/HAVING to confirm `SYSIBM.SYSDUMMY1` is inserted before those clauses.
+
+## 0.1.9 table-browser validation
+
+The compiled-contract checks cover pgAdmin 9.17's table collection count, node row shape, table property row shape, stable table OID/name lookup, PostgreSQL SERIAL-family translation and scalar SELECT EXISTS translation. The real IBM i acceptance test must confirm `QSYS2.SYSTABLES` visibility under the configured Mapepire service profile.
