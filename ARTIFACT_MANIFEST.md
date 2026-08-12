@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.12 reference implementation**
+Version: **0.1.13 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.12 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.12.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.13.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 
@@ -63,3 +63,10 @@ See `docs/VALIDATION.md`. This build environment could not resolve npm packages 
 ### 0.1.9 pgAdmin table browser / PostgreSQL DDL compatibility
 
 `src/sql/pgadmin-ibmi-table.ts` virtualizes pgAdmin 9.17's table collection against live `QSYS2.SYSTABLES` and assigns stable virtual table OIDs. `src/sql/translator.ts` maps PostgreSQL SERIAL-family pseudo-types to Db2 for i identity columns and rewrites top-level scalar `EXISTS`. The image build adds `verify-pgadmin-table.mjs` and `verify-sql-translation.mjs`.
+
+### 0.1.13 build-time RDB test isolation
+
+- `.env` remains excluded from the image build so IBM i credentials are never copied into layers.
+- The build stage supplies synthetic non-secret configuration (`IBMI_RDB_NAME=BUILDTEST`, fake host/user/password) solely to compiled contract tests.
+- `verify-pgadmin-wire.mjs` also self-seeds `IBMI_RDB_NAME` before dynamically importing runtime configuration, so it can be run directly outside a container.
+- Runtime behavior is unchanged: the final image still requires the real `IBMI_RDB_NAME`, `IBMI_HOST`, `IBMI_USER`, and `IBMI_PASSWORD` from the deployment environment.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.13 - 2026-08-12
+
+- Fix image build after `IBMI_RDB_NAME` became required in 0.1.12.
+- Keep deployment `.env` deliberately excluded from build context; build-time pgAdmin wire tests use synthetic non-secret IBM i/RDB values instead.
+- Seed `IBMI_RDB_NAME=BUILDTEST` inside `verify-pgadmin-wire.mjs` before importing `ProxySession`.
+- Add the same synthetic build-test configuration to both `Containerfile` and `Dockerfile`; it exists only in the build stage and is not inherited by the runtime image.
+- Runtime configuration remains strict and still requires the real `IBMI_RDB_NAME` and IBM i service credentials.
+
 ## 0.1.12 - 2026-08-12
 
 - Define a one-proxy/one-RDB identity model with required `IBMI_RDB_NAME`; PostgreSQL StartupMessage database must match that IBM i local RDB name.

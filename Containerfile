@@ -4,6 +4,19 @@ ARG NODE_IMAGE=node:24-bookworm-slim
 FROM ${NODE_IMAGE} AS build
 WORKDIR /app
 
+# Build-time contract tests must never depend on the deployment .env.
+# .env is intentionally excluded from the image because it can contain
+# IBM i service credentials. These values are synthetic and exist only
+# in the build stage; the runtime stage starts from a fresh FROM image.
+ENV IBMI_RDB_NAME=BUILDTEST \
+    IBMI_HOST=build-test.invalid \
+    IBMI_USER=build-test \
+    IBMI_PASSWORD=build-test \
+    PG_PROXY_USER=proxyuser \
+    PG_PROXY_PASSWORD=proxypass \
+    DEFAULT_SCHEMA=MYLIB \
+    PG_SERVER_VERSION=14.0
+
 COPY package*.json ./
 COPY scripts/verify-runtime-modules.mjs scripts/verify-pgadmin-compat.mjs scripts/verify-pgadmin-wire.mjs scripts/verify-startup-wire.mjs scripts/verify-pgadmin-browser.mjs scripts/verify-pgadmin-schema.mjs scripts/verify-pgadmin-table.mjs scripts/verify-sql-translation.mjs ./scripts/
 RUN npm install --ignore-scripts \

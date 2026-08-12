@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 // ProxySession imports runtime configuration. The build-time contract test uses
 // a fake Mapepire pool, but config still requires these values to be present.
+process.env.IBMI_RDB_NAME ??= 'BUILDTEST';
 process.env.IBMI_HOST ??= 'build-test.invalid';
 process.env.IBMI_USER ??= 'build-test';
 process.env.IBMI_PASSWORD ??= 'build-test';
@@ -33,7 +34,7 @@ const connection = new CaptureConnection();
 const session = new ProxySession(
   connection,
   fakePool,
-  { user: 'proxyuser', database: 'postgres', applicationName: 'pgAdmin 4 - DB:postgres' },
+  { user: 'proxyuser', database: 'BUILDTEST', applicationName: 'pgAdmin 4 - DB:BUILDTEST' },
   logger,
 );
 await session.initialize();

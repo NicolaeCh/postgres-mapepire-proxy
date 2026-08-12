@@ -21,7 +21,7 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.12 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.13 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.

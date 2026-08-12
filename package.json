@@ -1,6 +1,6 @@
 {
   "name": "postgres-mapepire-proxy",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "private": true,
   "description": "PostgreSQL v3 wire-protocol gateway to IBM i Db2 via Mapepire",
   "type": "module",
