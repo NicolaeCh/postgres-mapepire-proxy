@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.15 - 2026-08-12
+
+- Fixed a 0.1.14 pgAdmin Tables regression: the new table-child classifier no longer mistakes nested `pg_trigger` count subqueries inside the normal Tables `nodes.sql` request for a Triggers child collection.
+- PostgreSQL-only Trigger/Rule/Policy child requests are now claimed only when they contain a concrete numeric parent table OID.
+- Added a regression test proving the pgAdmin Tables node query remains available to the IBM i table adapter.
+
 ## 0.1.14 - 2026-08-12
 
 - Added `PGADMIN_HIDE_SYSTEM_SCHEMAS` (default `true`) to hide IBM i `Q*`, `SYS*`, and `INFORMATION_SCHEMA` schemas from pgAdmin.

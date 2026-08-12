@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.14 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.14
+podman build -t postgres-mapepire-proxy:0.1.15 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.15
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -85,6 +85,11 @@ This is intentionally a **compatibility proxy**, not an implementation of the Po
 
 
 
+
+
+## pgAdmin Tables regression fix (0.1.15)
+
+Release 0.1.15 fixes a regression introduced by the 0.1.14 table-child adapter. Normal pgAdmin Tables node SQL contains nested `pg_trigger` queries for trigger counts; those are no longer mistaken for a Triggers child collection. Trigger/Rule/Policy child interception now requires a concrete numeric parent table OID.
 
 ## pgAdmin schema filtering and table children (0.1.14)
 

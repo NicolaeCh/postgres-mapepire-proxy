@@ -21,7 +21,7 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.14 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.15 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
@@ -124,3 +124,8 @@ All TypeScript files under `src/` and `test/` pass TypeScript 5.8 syntax/transpi
 All 20 TypeScript files under `src/` pass TypeScript 5.8 syntax/transpile validation in the delivery workspace. The dedicated compiled mini-contract checks pass for pgAdmin schema filtering and table-child behavior. They cover: default hiding of `Q*`/`SYS*` system schemas, disabling that filter, pgAdmin Columns nodes from IBM i `SYSCOLUMNS2`, Indexes nodes from `SYSINDEXES`, exact empty partition-node contracts, and remaining PostgreSQL catalog `::OID` quarantine. All 54 environment variables referenced by source are present in `.env.example`, including `PGADMIN_HIDE_SYSTEM_SCHEMAS` and `IBMI_CURRENT_SCHEMA`.
 
 The target `podman build` remains the authoritative dependency-resolved TypeScript/runtime check because public npm dependency installation is unavailable in this delivery environment.
+
+
+## 0.1.15 Tables regression validation
+
+The table-child contract tests include a normal pgAdmin Tables node request containing nested `pg_trigger` count subqueries. The child classifier must return no match for that SQL, and the parent IBM i Tables classifier must classify it as `nodes`.

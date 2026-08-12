@@ -3,7 +3,7 @@ import {
   classifyPgAdminTableChildQuery, renderColumnQuery, renderIndexQuery,
   renderEmptyTableChild, IBMI_COLUMN_CATALOG_SQL, IBMI_INDEX_CATALOG_SQL,
 } from '../src/sql/pgadmin-ibmi-table-child.js';
-import { tableOid } from '../src/sql/pgadmin-ibmi-table.js';
+import { classifyPgAdminIbmiTableQuery, tableOid } from '../src/sql/pgadmin-ibmi-table.js';
 
 const tid = tableOid('MONAI', 'ORDERS');
 const columns = [
@@ -32,6 +32,35 @@ describe('pgAdmin IBM i table-child contracts', () => {
     expect(result.fields.map((f) => f.name)).toEqual(['name','oid','datatype','displaytypname','not_null','has_default_val','description','seqtypid']);
     expect(result.rows).toHaveLength(2);
     expect(result.rows[0]?.[0]).toBe('ID');
+  });
+
+
+  it('does not steal a normal Tables nodes query that contains nested pg_trigger counts', () => {
+    const req = classifyPgAdminTableChildQuery(`SELECT rel.oid, rel.relname AS name,
+      (SELECT count(*) FROM pg_catalog.pg_trigger WHERE tgrelid=rel.oid AND tgisinternal = FALSE) AS triggercount,
+      (SELECT count(*) FROM pg_catalog.pg_trigger WHERE tgrelid=rel.oid AND tgisinternal = FALSE AND tgenabled = 'O') AS has_enable_triggers,
+      false AS is_partitioned,
+      (SELECT count(1) FROM pg_catalog.pg_inherits WHERE inhrelid=rel.oid LIMIT 1) AS is_inherits,
+      (SELECT count(1) FROM pg_catalog.pg_inherits WHERE inhparent=rel.oid LIMIT 1) AS is_inherited,
+      des.description
+      FROM pg_catalog.pg_class rel
+      LEFT JOIN pg_catalog.pg_description des ON des.objoid=rel.oid
+      WHERE rel.relkind IN ('r','s','t','p') AND rel.relnamespace = 123456::oid
+      AND NOT rel.relispartition ORDER BY rel.relname`);
+    expect(req).toBeUndefined();
+
+    const parentReq = classifyPgAdminIbmiTableQuery(`SELECT rel.oid, rel.relname AS name,
+      (SELECT count(*) FROM pg_catalog.pg_trigger WHERE tgrelid=rel.oid AND tgisinternal = FALSE) AS triggercount,
+      (SELECT count(*) FROM pg_catalog.pg_trigger WHERE tgrelid=rel.oid AND tgisinternal = FALSE AND tgenabled = 'O') AS has_enable_triggers,
+      false AS is_partitioned,
+      (SELECT count(1) FROM pg_catalog.pg_inherits WHERE inhrelid=rel.oid LIMIT 1) AS is_inherits,
+      (SELECT count(1) FROM pg_catalog.pg_inherits WHERE inhparent=rel.oid LIMIT 1) AS is_inherited,
+      des.description
+      FROM pg_catalog.pg_class rel
+      LEFT JOIN pg_catalog.pg_description des ON des.objoid=rel.oid
+      WHERE rel.relkind IN ('r','s','t','p') AND rel.relnamespace = 123456::oid
+      AND NOT rel.relispartition ORDER BY rel.relname`);
+    expect(parentReq?.kind).toBe('nodes');
   });
 
   it('recognizes pgAdmin Indexes nodes and returns live SQL indexes', () => {

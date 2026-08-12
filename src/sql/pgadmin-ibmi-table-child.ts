@@ -136,7 +136,13 @@ export function classifyPgAdminTableChildQuery(sql: string): PgAdminTableChildRe
       /\bev_class\s*=\s*'?([0-9]+)'?(?:::\s*oid)?/i,
       /\bpolrelid\s*=\s*'?([0-9]+)'?(?:::\s*oid)?/i,
     ]);
-    return { kind: 'emptyTableChild', tableOid, family };
+
+    // A real pgAdmin child collection is always scoped to a concrete parent
+    // table OID. Normal Tables nodes/properties SQL also contains nested
+    // pg_trigger subqueries (for trigger counts), but those predicates use
+    // tgrelid=rel.oid rather than a numeric OID. Do not steal the parent table
+    // request merely because one of those nested PostgreSQL catalogs appears.
+    if (tableOid !== undefined) return { kind: 'emptyTableChild', tableOid, family };
   }
 
   return undefined;
