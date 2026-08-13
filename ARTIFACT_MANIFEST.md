@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.23 reference implementation**
+Version: **0.1.24 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.23 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.23.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.24.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 

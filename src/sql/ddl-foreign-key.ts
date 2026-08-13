@@ -95,6 +95,11 @@ export class DdlForeignKeyTypeRegistry {
     }
   }
 
+  getColumnType(tableName: string, columnName: string, currentSchema: string): string | undefined {
+    const table = splitQualifiedName(tableName, currentSchema);
+    return this.types.get(typeKey(table.schema, table.table, columnName));
+  }
+
   clear(): void {
     this.types.clear();
   }

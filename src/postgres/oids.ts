@@ -26,10 +26,11 @@ export interface PgType {
 
 export function db2TypeToPg(type: string, precision = 0): PgType {
   const t = type.toUpperCase().trim();
+  if (t === 'BOOLEAN') return { oid: OID.bool, name: 'bool', size: 1 };
   if (t === 'SMALLINT') return { oid: OID.int2, name: 'int2', size: 2 };
   if (['INTEGER', 'INT'].includes(t)) return { oid: OID.int4, name: 'int4', size: 4 };
   if (t === 'BIGINT') return { oid: OID.int8, name: 'int8', size: 8 };
-  if (['DECIMAL', 'NUMERIC', 'DECFLOAT'].includes(t)) return { oid: OID.numeric, name: 'numeric', size: -1 };
+  if (['DECIMAL', 'NUMERIC', 'DECFLOAT'].some((x) => t === x || t.startsWith(`${x}(`))) return { oid: OID.numeric, name: 'numeric', size: -1 };
   if (t === 'REAL') return { oid: OID.float4, name: 'float4', size: 4 };
   if (['FLOAT', 'DOUBLE', 'DOUBLE PRECISION'].includes(t)) return { oid: OID.float8, name: 'float8', size: 8 };
   if (t === 'DATE') return { oid: OID.date, name: 'date', size: 4 };

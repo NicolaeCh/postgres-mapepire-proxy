@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.23 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.23
+podman build -t postgres-mapepire-proxy:0.1.24 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.24
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -145,6 +145,10 @@ PostgreSQL `SMALLSERIAL`/`SERIAL`/`BIGSERIAL` column pseudo-types are translated
 The proxy implements a Virtual PostgreSQL System Layer audited against pgAdmin 4 9.17. Release 0.1.8 extends that contract beyond login into the database/schema browser: dashboard rows, database ACL/default-ACL dictionaries, role/tablespace descriptions, scheduler probes, and schema nodes/properties/ACLs now return the exact pgAdmin field shapes. Schema discovery is backed by live `QSYS2.SYSSCHEMAS`, while normal application SQL continues through Mapepire. Basic pgAdmin `CREATE SCHEMA ... AUTHORIZATION ...` is translated to IBM i service-user DDL. See `docs/PGADMIN_COMPATIBILITY.md`.
 
 For pgAdmin 9.17 use `PG_SERVER_VERSION=14.0`; if reusing an `.env` from 0.1.5 or earlier, update that value explicitly.
+
+## ContextForge / Alembic RETURNING compatibility (0.1.24)
+
+Alembic's PostgreSQL dialect records a newly applied revision with `INSERT INTO alembic_version (...) VALUES (...) RETURNING alembic_version.version_num`. Db2 for i does not accept PostgreSQL `RETURNING`, so the proxy translates simple-column DML RETURNING clauses to native Db2 data-change table references. Inserts and updates use `FINAL TABLE`; deletes use `OLD TABLE`. The returned rowset is passed back through the PostgreSQL wire protocol while the command tag remains the original DML operation. For psycopg extended protocol, the proxy also answers statement/portal Describe from the session DDL registry without executing the write during Describe.
 
 ## ContextForge Alembic DDL compatibility (0.1.23)
 

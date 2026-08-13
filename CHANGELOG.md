@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.24 - 2026-08-13
+
+- Translate PostgreSQL `INSERT ... RETURNING` into a Db2 for i `SELECT ... FROM FINAL TABLE (INSERT ...)` data-change table reference so Alembic can write and read back `alembic_version.version_num`.
+- Preserve the original PostgreSQL DML command kind while returning the Db2 rowset, so wire `CommandComplete` remains `INSERT`/`UPDATE`/`DELETE` rather than `SELECT`.
+- Support simple-column `UPDATE ... RETURNING` through `FINAL TABLE` and `DELETE ... RETURNING` through `OLD TABLE`; reject unsupported complex RETURNING expressions explicitly instead of leaking PostgreSQL syntax to IBM i.
+- Count rows returned by a Db2 data-change table reference as affected DML rows when Mapepire reports `update_count=0`.
+- Advertise RETURNING RowDescription during PostgreSQL extended-protocol Describe without executing the write early; infer returned column OIDs from the session DDL registry when available.
+- Add build gate `verify-contextforge-returning.mjs` with the Alembic version-table statement and identity/update/delete RETURNING contracts.
+
 ## 0.1.23 - 2026-08-13
 
 - Align translated Db2 foreign-key column datatypes with the referenced parent key datatype for CREATE TABLE statements executed in the same PostgreSQL session.

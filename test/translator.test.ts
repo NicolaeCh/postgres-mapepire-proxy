@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { translateSql, reorderParameters } from '../src/sql/translator.js';
+import { parsePgReturning, translateSql, reorderParameters } from '../src/sql/translator.js';
 
 const opts = {
   uppercaseIdentifiers: true,
@@ -109,6 +109,45 @@ describe('PostgreSQL DDL compatibility', () => {
     }).sql;
     expect(sql).toContain('A VARCHAR(2048)');
     expect(sql).toContain('B VARCHAR(36)');
+  });
+
+  it('maps Alembic INSERT RETURNING to a Db2 FINAL TABLE rowset', () => {
+    expect(parsePgReturning(
+      'insert into alembic_version (version_num) values ($1) returning alembic_version.version_num',
+    )).toEqual({
+      kind: 'insert',
+      table: 'alembic_version',
+      columns: [{ column: 'version_num', fieldName: 'version_num' }],
+    });
+    const translated = translateSql(
+      "insert into alembic_version (version_num) values ($1) returning alembic_version.version_num",
+      opts,
+    );
+    expect(translated.kind).toBe('insert');
+    expect(translated.parameterOrder).toEqual([1]);
+    expect(translated.sql).toBe(
+      'SELECT VERSION_NUM FROM FINAL TABLE (INSERT INTO ALEMBIC_VERSION (VERSION_NUM) VALUES (?))',
+    );
+  });
+
+  it('maps PostgreSQL UPDATE/DELETE RETURNING to Db2 data-change table references', () => {
+    const updated = translateSql(
+      'update tools set enabled=false where id=$1 returning tools.id, tools.enabled',
+      opts,
+    );
+    expect(updated.kind).toBe('update');
+    expect(updated.sql).toBe(
+      'SELECT ID, ENABLED FROM FINAL TABLE (UPDATE TOOLS SET ENABLED=FALSE WHERE ID=?)',
+    );
+
+    const deleted = translateSql(
+      'delete from tools where id=$1 returning tools.id',
+      opts,
+    );
+    expect(deleted.kind).toBe('delete');
+    expect(deleted.sql).toBe(
+      'SELECT ID FROM OLD TABLE (DELETE FROM TOOLS WHERE ID=?)',
+    );
   });
 
 });

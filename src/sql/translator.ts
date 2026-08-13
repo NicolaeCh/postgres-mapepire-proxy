@@ -16,12 +16,24 @@ export interface TranslateOptions {
   ddlDefaultVarcharLength?: number;
 }
 
+export interface PgReturningColumn {
+  column: string;
+  fieldName: string;
+}
+
+export interface PgReturningInfo {
+  kind: 'insert' | 'update' | 'delete';
+  table: string;
+  columns: PgReturningColumn[];
+}
+
 export function translateSql(input: string, options: TranslateOptions): Translation {
   let sql = input.trim();
   if (!options.allowMultiStatement && hasMultipleStatements(sql)) {
     throw Object.assign(new Error('Multiple SQL statements in one PostgreSQL Query message are disabled'), { sqlstate: '0A000' });
   }
   sql = sql.replace(/;+\s*$/, '');
+  const originalKind = classify(sql);
 
   const parameterOrder: number[] = [];
   sql = sql.replace(/\$(\d+)/g, (_m, n) => {
@@ -32,6 +44,7 @@ export function translateSql(input: string, options: TranslateOptions): Translat
   sql = rewritePgCasts(sql);
   sql = rewritePgSerialTypes(sql);
   sql = rewritePgDdlTypes(sql, options.ddlDefaultVarcharLength ?? 1024);
+  sql = rewritePgReturning(sql, originalKind);
   sql = rewriteTopLevelExists(sql);
   sql = rewriteLimitOffset(sql);
   sql = rewritePgFunctions(sql);
@@ -45,7 +58,11 @@ export function translateSql(input: string, options: TranslateOptions): Translat
     sql = `${sql} FETCH FIRST ${Math.trunc(options.maxRows)} ROWS ONLY`;
   }
 
-  return { original: input, sql, kind: classify(sql), parameterOrder };
+  // A PostgreSQL DML ... RETURNING statement is translated to a Db2
+  // data-change table reference whose outer statement is SELECT.  Preserve
+  // the original PostgreSQL DML kind so CommandComplete remains INSERT/UPDATE/
+  // DELETE rather than SELECT while still returning the Db2 rowset.
+  return { original: input, sql, kind: originalKind, parameterOrder };
 }
 
 export function reorderParameters(values: unknown[], order: number[]): unknown[] {
@@ -186,6 +203,105 @@ function rewriteDb2TypePrefix(rest: string, defaultVarcharLength: number): strin
   value = value.replace(/^CHARACTER\s+VARYING\b(?!\s*\()/i, `VARCHAR(${varcharLength})`);
 
   return value;
+}
+
+/**
+ * Translate PostgreSQL DML RETURNING into Db2 for i data-change table
+ * references.
+ *
+ * PostgreSQL / SQLAlchemy commonly emits, for example:
+ *   INSERT INTO alembic_version (version_num)
+ *   VALUES (?) RETURNING alembic_version.version_num
+ *
+ * Db2 for i retrieves the affected row using:
+ *   SELECT version_num FROM FINAL TABLE (
+ *     INSERT INTO alembic_version (version_num) VALUES (?)
+ *   )
+ *
+ * FINAL TABLE exposes post-change values for INSERT/UPDATE. OLD TABLE exposes
+ * pre-delete values for DELETE, which matches PostgreSQL DELETE ... RETURNING.
+ * Keep this deliberately conservative: SQLAlchemy's implicit RETURNING uses a
+ * simple list of columns. More complex PostgreSQL-only expressions are rejected
+ * rather than being silently mis-translated.
+ */
+function rewritePgReturning(sql: string, kind: ReturnType<typeof classify>): string {
+  const info = parsePgReturning(sql);
+  if (!info) return sql;
+
+  const returning = topLevelKeywordIndex(sql, 'returning');
+  const dml = sql.slice(0, returning).trimEnd();
+  const selectList = info.columns.map((column) => column.column).join(', ');
+
+  const transition = kind === 'delete' ? 'OLD TABLE' : 'FINAL TABLE';
+  return `SELECT ${selectList} FROM ${transition} (${dml})`;
+}
+
+export function parsePgReturning(sql: string): PgReturningInfo | undefined {
+  const kind = classify(sql);
+  if (kind !== 'insert' && kind !== 'update' && kind !== 'delete') return undefined;
+
+  const returning = topLevelKeywordIndex(sql, 'returning');
+  if (returning < 0) return undefined;
+
+  const rawList = sql.slice(returning + 'returning'.length).trim().replace(/;+\s*$/, '');
+  if (!rawList) {
+    throw Object.assign(new Error('PostgreSQL RETURNING requires at least one result expression'), { sqlstate: '42601' });
+  }
+
+  const table = returningTargetTable(sql, kind);
+  if (!table) {
+    throw Object.assign(new Error('PostgreSQL RETURNING target table could not be determined'), { sqlstate: '0A000' });
+  }
+
+  const columns = splitDefinitionList(rawList).map((item) => parseReturningExpression(item.trim()));
+  return { kind, table, columns };
+}
+
+function returningTargetTable(sql: string, kind: 'insert' | 'update' | 'delete'): string | undefined {
+  const ident = `(?:(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$#@]*)(?:\\s*\\.\\s*(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$#@]*))?)`;
+  const source = kind === 'insert'
+    ? `^\\s*INSERT\\s+INTO\\s+(${ident})`
+    : kind === 'update'
+      ? `^\\s*UPDATE\\s+(${ident})`
+      : `^\\s*DELETE\\s+FROM\\s+(${ident})`;
+  return new RegExp(source, 'i').exec(sql)?.[1]?.replace(/\s*\.\s*/g, '.');
+}
+
+function parseReturningExpression(expression: string): PgReturningColumn {
+  if (expression === '*') {
+    throw Object.assign(
+      new Error('PostgreSQL RETURNING * is not supported because portal Describe requires explicit result-column metadata'),
+      { sqlstate: '0A000' },
+    );
+  }
+
+  // Preserve an optional SQL alias while removing a relation qualifier from a
+  // simple returned column. The row produced by FINAL/OLD TABLE is the only
+  // table reference in the outer SELECT, so the PostgreSQL source-table
+  // qualifier is neither needed nor valid there.
+  const match = expression.match(
+    /^(?:(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$#@]*)\.)?("(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$#@]*)(\s+(?:AS\s+)?(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$#@]*))?$/i,
+  );
+  if (!match) {
+    throw Object.assign(
+      new Error(`PostgreSQL RETURNING expression is not supported by the Db2 for i compatibility layer: ${expression}`),
+      { sqlstate: '0A000' },
+    );
+  }
+  const column = match[1]!;
+  const alias = match[2]?.trim().replace(/^AS\s+/i, '');
+  return {
+    column,
+    fieldName: unquoteIdentifier(alias ?? column),
+  };
+}
+
+function unquoteIdentifier(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return trimmed.slice(1, -1).replace(/""/g, '"');
+  }
+  return trimmed.toLowerCase();
 }
 
 function rewriteTopLevelExists(sql: string): string {

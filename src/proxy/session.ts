@@ -47,7 +47,7 @@ import {
   registerIbmiViews, lookupRegisteredIbmiView,
   type IbmiViewRow,
 } from '../sql/pgadmin-ibmi-view.js';
-import { reorderParameters, translateSql, type Translation } from '../sql/translator.js';
+import { parsePgReturning, reorderParameters, translateSql, type Translation } from '../sql/translator.js';
 import { DdlForeignKeyTypeRegistry } from '../sql/ddl-foreign-key.js';
 import { parsePgSavepointCommand, savepointCommandTag, translatePgSavepointToDb2 } from '../sql/transactions.js';
 import {
@@ -199,6 +199,12 @@ export class ProxySession {
         return;
       }
 
+      const returningFields = this.returningFields(stmt.sql);
+      if (returningFields) {
+        this.send(rowDescription(returningFields));
+        return;
+      }
+
       // A statement-level Describe happens before Bind, so Mapepire cannot
       // provide exact metadata for parameterized Db2 queries. pgAdmin/psycopg3
       // describes the bound portal instead (P), which is handled below.
@@ -233,6 +239,14 @@ export class ProxySession {
       portal.descriptionSent = true;
       if (local.fields.length) this.send(rowDescription(local.fields));
       else this.send(noData());
+      return;
+    }
+
+
+    const returningFields = this.returningFields(stmt.sql);
+    if (returningFields) {
+      portal.descriptionSent = true;
+      this.send(rowDescription(returningFields));
       return;
     }
 
@@ -524,6 +538,22 @@ export class ProxySession {
 
     if (result.has_results) this.sendMapepireRows(result, maxRows, includeDescription);
     this.send(commandComplete(commandTag(translation.kind, result)));
+  }
+
+  private returningFields(sql: string): FieldDescription[] | undefined {
+    const returning = parsePgReturning(sql);
+    if (!returning) return undefined;
+    return returning.columns.map((column) => {
+      const db2Type = this.ddlForeignKeyTypes.getColumnType(returning.table, column.column, this.currentSchema);
+      const pg = db2Type ? db2TypeToPg(db2Type) : { oid: OID.text, size: -1 };
+      return {
+        name: column.fieldName,
+        typeOid: pg.oid,
+        typeSize: pg.size,
+        typeModifier: -1,
+        format: 0,
+      };
+    });
   }
 
   private async executeWithSafeRetry(translation: Translation, parameters: unknown[], maxRows: number): Promise<QueryResult<Record<string, unknown>>> {
@@ -1174,7 +1204,12 @@ function getRowValue(row: Record<string, unknown>, c: ColumnMetaData): unknown {
 }
 
 function commandTag(kind: StatementKind, result: QueryResult<any>): string {
-  const n = Math.max(0, result.update_count ?? 0);
+  // Db2 data-change table references used to implement PostgreSQL RETURNING
+  // expose the changed rows as a SELECT rowset and may report update_count=0.
+  // In that case the number of returned rows is the PostgreSQL affected-row
+  // count for INSERT/UPDATE/DELETE CommandComplete.
+  const returned = result.has_results ? (result.data?.length ?? 0) : 0;
+  const n = Math.max(0, result.update_count ?? 0, returned);
   switch (kind) {
     case 'select': case 'values': return `SELECT ${result.data?.length ?? 0}`;
     case 'insert': return `INSERT 0 ${n}`;

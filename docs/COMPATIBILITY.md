@@ -92,3 +92,8 @@ Fresh ContextForge v1.0.7 Alembic migrations are supported by translating Postgr
 ## 0.1.23 ContextForge / Db2 foreign-key datatype alignment
 
 PostgreSQL permits compatible VARCHAR typmods across a foreign key (for example an unbounded VARCHAR referencing VARCHAR(36)). Db2 for i validates the dependent and parent key column descriptions more strictly. The proxy therefore records translated column datatypes from successful CREATE TABLE statements for the current PostgreSQL session and aligns dependent CREATE TABLE foreign-key columns to the exact translated parent-key type before execution.
+
+
+## 0.1.24 ContextForge / Alembic RETURNING
+
+PostgreSQL `INSERT ... RETURNING <simple columns>` is translated to `SELECT <columns> FROM FINAL TABLE (INSERT ...)`, allowing Alembic's `alembic_version` insert to receive the returned revision value on Db2 for i. The same compatibility layer maps simple-column `UPDATE ... RETURNING` to `FINAL TABLE` and `DELETE ... RETURNING` to `OLD TABLE`. Complex PostgreSQL-only RETURNING expressions fail with SQLSTATE `0A000` instead of being sent unchanged to Db2.
