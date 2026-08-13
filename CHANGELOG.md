@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.23 - 2026-08-13
+
+- Align translated Db2 foreign-key column datatypes with the referenced parent key datatype for CREATE TABLE statements executed in the same PostgreSQL session.
+- Fix ContextForge v1.0.7 `server_metrics.server_id` (`String()`) referencing `servers.id` (`String(36)`), which PostgreSQL accepts but Db2 for i rejects with SQL0538/42830 after generic bare-VARCHAR translation.
+- Apply the same generic alignment to later ContextForge association/metrics tables (`server_id`, `tool_id`, and similar keys) instead of hard-coding application table names.
+- Add build gate `verify-contextforge-fk-types.mjs` covering single and composite foreign-key type inheritance while preserving already-compatible key columns.
+
 ## 0.1.22
 
 - Translate PostgreSQL `TIMESTAMP WITHOUT TIME ZONE` to Db2 for i `TIMESTAMP`.

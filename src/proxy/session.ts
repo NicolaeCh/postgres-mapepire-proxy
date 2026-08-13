@@ -48,6 +48,7 @@ import {
   type IbmiViewRow,
 } from '../sql/pgadmin-ibmi-view.js';
 import { reorderParameters, translateSql, type Translation } from '../sql/translator.js';
+import { DdlForeignKeyTypeRegistry } from '../sql/ddl-foreign-key.js';
 import { parsePgSavepointCommand, savepointCommandTag, translatePgSavepointToDb2 } from '../sql/transactions.js';
 import {
   executePgAdvisoryLockQuery, parsePgAdvisoryLockQuery, pgAdvisoryLockFields, releaseAllPgAdvisoryLocks,
@@ -81,6 +82,7 @@ export class ProxySession {
   private extendedError = false;
   private currentSchema = config.ibmi.currentSchema;
   private schemaCache?: { expiresAt: number; rows: IbmiSchemaRow[] };
+  private readonly ddlForeignKeyTypes = new DdlForeignKeyTypeRegistry();
   // Keep the TCP accumulation buffer typed as Uint8Array. Node 24's Buffer
   // definitions parameterize the backing ArrayBuffer type, and mixing buffers
   // returned by concat/subarray can otherwise produce Buffer<ArrayBuffer> vs
@@ -484,6 +486,14 @@ export class ProxySession {
     let translation: Translation;
     try {
       translation = translateSql(sql, config.sql);
+      const aligned = this.ddlForeignKeyTypes.alignCreateTable(translation.sql, this.currentSchema);
+      if (aligned.alignments.length > 0) {
+        translation.sql = aligned.sql;
+        this.logger.info('Aligned Db2 foreign-key column types with referenced parent keys', {
+          database: this.client.database,
+          alignments: aligned.alignments,
+        });
+      }
       if (config.sql.logText) this.logger.info('Translated SQL', { original: sql, db2: translation.sql });
     } catch (error) {
       throw error;
@@ -493,6 +503,7 @@ export class ProxySession {
     let result: QueryResult<Record<string, unknown>>;
     try {
       result = await this.executeWithSafeRetry(translation, values, maxRows);
+      this.ddlForeignKeyTypes.registerCreateTable(translation.sql, this.currentSchema);
 
       // PostgreSQL autocommit semantics require the backend transaction to be
       // durable before CommandComplete is reported to the client. Mapepire JDBC

@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.22 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.22
+podman build -t postgres-mapepire-proxy:0.1.23 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.23
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -146,10 +146,14 @@ The proxy implements a Virtual PostgreSQL System Layer audited against pgAdmin 4
 
 For pgAdmin 9.17 use `PG_SERVER_VERSION=14.0`; if reusing an `.env` from 0.1.5 or earlier, update that value explicitly.
 
-## ContextForge Alembic DDL compatibility (0.1.22)
+## ContextForge Alembic DDL compatibility (0.1.23)
 
 ContextForge v1.0.7 creates its fresh PostgreSQL schema through Alembic. PostgreSQL DDL types emitted by SQLAlchemy are translated to persistent Db2 for i equivalents before Mapepire execution: lengthless `VARCHAR` receives a configurable length (`SQL_DDL_DEFAULT_VARCHAR_LENGTH`, default `1024`), `JSON`/`JSONB` and `TEXT` use UTF-8 `CLOB(2G)`, `BYTEA` uses `BLOB(2G)`, and timezone-aware and timezone-naive PostgreSQL timestamp/time declarations (`WITH TIME ZONE` and `WITHOUT TIME ZONE`) use Db2 `TIMESTAMP`/`TIME`. Explicitly sized `VARCHAR(n)` is preserved.
 
 ## ContextForge advisory-lock compatibility (0.1.20)
 
 ContextForge v1.0.7 serializes database bootstrap with PostgreSQL session advisory locks. Release 0.1.20 implements `pg_try_advisory_lock(bigint)`, `pg_advisory_unlock(bigint)`, and `pg_advisory_unlock_all()` inside the proxy. The lock registry is session-scoped and re-entrant, and locks are automatically released when the owning PostgreSQL TCP session closes. This prevents the generic PostgreSQL-system compatibility firewall from returning NULL for `pg_try_advisory_lock()`, which previously caused every ContextForge worker to wait forever for a lock that no worker could acquire.
+
+## ContextForge foreign-key datatype compatibility (0.1.23)
+
+Alembic migrations can define an unbounded PostgreSQL `VARCHAR` foreign-key column that references a sized `VARCHAR(36)` primary key. The proxy now remembers translated parent-column types during the migration session and rewrites dependent foreign-key columns to the exact Db2 type required by the referenced key before executing the dependent `CREATE TABLE`.

@@ -88,3 +88,7 @@ Supported: live table enumeration for IBM i `T`/`P` table-like objects, table no
 Fresh ContextForge v1.0.7 Alembic migrations are supported by translating PostgreSQL-only/incomplete DDL types before IBM i execution: bare `VARCHAR`, `JSON`/`JSONB`, `TEXT`, `BYTEA`, and timezone-aware timestamp/time declarations. Explicit PostgreSQL `VARCHAR(n)` lengths remain unchanged.
 
 - `TIMESTAMP WITHOUT TIME ZONE` and `TIMESTAMP WITH TIME ZONE` are normalized to Db2 for i `TIMESTAMP` for CREATE/ALTER TABLE DDL.
+
+## 0.1.23 ContextForge / Db2 foreign-key datatype alignment
+
+PostgreSQL permits compatible VARCHAR typmods across a foreign key (for example an unbounded VARCHAR referencing VARCHAR(36)). Db2 for i validates the dependent and parent key column descriptions more strictly. The proxy therefore records translated column datatypes from successful CREATE TABLE statements for the current PostgreSQL session and aligns dependent CREATE TABLE foreign-key columns to the exact translated parent-key type before execution.
