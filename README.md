@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.18 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.18
+podman build -t postgres-mapepire-proxy:0.1.19 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.19
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -98,6 +98,10 @@ The **Views** collection is now backed by live IBM i catalogs. SQL views are dis
 
 Release 0.1.18 adds the PostgreSQL bootstrap queries used by SQLAlchemy 2.0 with psycopg, including `SELECT pg_catalog.version()`, `SELECT current_schema()`, `SHOW transaction isolation level`, and `SHOW standard_conforming_strings`. This allows SQLAlchemy clients such as IBM MCP ContextForge to complete PostgreSQL dialect initialization through the proxy instead of receiving a NULL server-version scalar. The reported compatibility version follows `PG_SERVER_VERSION` (default `14.0`).
 
+## psycopg nested-transaction compatibility (0.1.19)
+
+Release 0.1.19 adds real Db2 for i-backed savepoints for psycopg nested `Connection.transaction()` contexts. PostgreSQL `SAVEPOINT`, `RELEASE [SAVEPOINT]`, and `ROLLBACK TO [SAVEPOINT]` commands are normalized to Db2 for i syntax on the same session-affinity Mapepire job. The release also virtualizes psycopg's optional `hstore` `TypeInfo.fetch()` query as an exact empty result, which is the correct behavior when the PostgreSQL extension is absent. This completes the next SQLAlchemy 2.0.51 / psycopg 3.3.4 first-connect stage used by ContextForge v1.0.7.
+
 ## pgAdmin Tables regression fix (0.1.15)
 
 Release 0.1.15 fixes a regression introduced by the 0.1.14 table-child adapter. Normal pgAdmin Tables node SQL contains nested `pg_trigger` queries for trigger counts; those are no longer mistaken for a Triggers child collection. Trigger/Rule/Policy child interception now requires a concrete numeric parent table OID.
@@ -118,7 +122,7 @@ Release 0.1.12 also fixes an empty-Schemas pgAdmin 9.17 regression where the sch
 
 ## Important v0.1 limitations
 
-`SAVEPOINT`/`ROLLBACK TO SAVEPOINT`, PostgreSQL `CancelRequest`, binary result format and full PostgreSQL catalog emulation are not implemented. Common client `SET statement_timeout`/`lock_timeout` initialization commands are accepted as no-ops; they do not cancel IBM i work. See `docs/COMPATIBILITY.md`.
+PostgreSQL `CancelRequest`, binary result format and full PostgreSQL catalog emulation are not implemented. Common client `SET statement_timeout`/`lock_timeout` initialization commands are accepted as no-ops; they do not cancel IBM i work. See `docs/COMPATIBILITY.md`.
 
 
 ## pgAdmin table discovery reliability (0.1.10)

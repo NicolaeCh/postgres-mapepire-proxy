@@ -21,7 +21,7 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.18 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.19 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
@@ -129,3 +129,8 @@ The target `podman build` remains the authoritative dependency-resolved TypeScri
 ## 0.1.15 Tables regression validation
 
 The table-child contract tests include a normal pgAdmin Tables node request containing nested `pg_trigger` count subqueries. The child classifier must return no match for that SQL, and the parent IBM i Tables classifier must classify it as `nodes`.
+
+
+## 0.1.19 SQLAlchemy / psycopg nested-transaction validation
+
+The compiled SQLAlchemy compatibility verifier now covers psycopg 3.3.4 nested transaction commands (`SAVEPOINT`, `RELEASE`, `ROLLBACK TO`) and the exact Db2 for i SQL emitted for each command. It also verifies that psycopg's `TypeInfo.fetch()` query for the optional `hstore` extension receives a five-column empty rowset (`name`, `oid`, `array_oid`, `regtype`, `delimiter`) instead of the generic synthetic `pg_type` enumeration. Live IBM i acceptance must still execute a savepoint sequence through Mapepire to validate the backend commitment-control environment.

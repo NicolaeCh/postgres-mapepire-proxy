@@ -25,7 +25,7 @@ Unit tests cover SQL translation and PostgreSQL frame serialization. Add regress
 9. Stop/restart Mapepire; verify readiness changes. With the default `MAPEPIRE_RECONNECT_RETRIES=0`, the affected statement must fail rather than replay.
 10. In a dedicated test environment, set `MAPEPIRE_RECONNECT_RETRIES=1` and verify only a known-safe read outside a transaction is retried after a transport failure.
 11. Confirm a write is never replayed automatically after a transport error.
-12. Verify `SAVEPOINT x` and `ROLLBACK TO SAVEPOINT x` return `0A000` rather than rolling back the entire transaction silently.
+12. Validate nested savepoints: `BEGIN; SAVEPOINT x; INSERT ...; ROLLBACK TO SAVEPOINT x; RELEASE SAVEPOINT x; COMMIT;` and confirm only work after the savepoint is undone. Also verify psycopg spellings `RELEASE x` and `ROLLBACK TO x`.
 
 ## Architecture acceptance
 

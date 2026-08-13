@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.19 - 2026-08-13
+
+- Add real PostgreSQL SAVEPOINT / RELEASE / ROLLBACK TO SAVEPOINT compatibility backed by Db2 for i savepoints, including psycopg 3 nested transaction spellings such as `RELEASE "_pg3_1"`.
+- Allow `ROLLBACK TO SAVEPOINT` to recover PostgreSQL failed-transaction state while keeping the outer transaction active.
+- Add an exact empty psycopg `TypeInfo.fetch()` response for optional PostgreSQL extension types such as `hstore`, preventing the generic `pg_type` enumerator from returning the wrong record shape.
+- Extend the SQLAlchemy/psycopg build-time compatibility gate to cover the complete hstore/savepoint initialization path used by ContextForge v1.0.7.
+
 ## 0.1.18 - 2026-08-13
 
 - Add SQLAlchemy 2.0 / psycopg bootstrap compatibility for `SELECT pg_catalog.version()` and `SHOW transaction isolation level`.

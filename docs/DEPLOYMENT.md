@@ -137,14 +137,14 @@ The compose definition mounts `./certs` read-only at `/app/certs`.
 
 ```bash
 podman pull node:24-bookworm-slim
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.18 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.19 .
 ```
 
 ### Docker
 
 ```bash
 docker pull node:24-bookworm-slim
-docker build -t postgres-mapepire-proxy:0.1.18 .
+docker build -t postgres-mapepire-proxy:0.1.19 .
 ```
 
 The `Dockerfile` accepts `--build-arg NODE_IMAGE=...` if an exact tested tag/digest must be pinned. Keep the image on Node 24 LTS and verify that the chosen manifest contains both `linux/amd64` and `linux/ppc64le`.
@@ -184,7 +184,7 @@ podman run -d \
   -p 8080:8080 \
   -v ./certs:/app/certs:ro,Z \
   --restart=unless-stopped \
-  postgres-mapepire-proxy:0.1.18
+  postgres-mapepire-proxy:0.1.19
 ```
 
 ### Compose
@@ -200,7 +200,7 @@ docker compose up -d
 ### Docker buildx
 
 ```bash
-IMAGE=registry.example.com/db/postgres-mapepire-proxy:0.1.18 \
+IMAGE=registry.example.com/db/postgres-mapepire-proxy:0.1.19 \
   ./scripts/build-multiarch-docker.sh
 ```
 
@@ -212,8 +212,8 @@ On builders capable of producing both target architectures:
 
 ```bash
 ./scripts/build-multiarch-podman.sh
-podman manifest push --all postgres-mapepire-proxy:0.1.18 \
-  docker://registry.example.com/db/postgres-mapepire-proxy:0.1.18
+podman manifest push --all postgres-mapepire-proxy:0.1.19 \
+  docker://registry.example.com/db/postgres-mapepire-proxy:0.1.19
 ```
 
 For production PPC64LE it is often preferable to build the PPC64LE image natively on IBM Power rather than through QEMU emulation.

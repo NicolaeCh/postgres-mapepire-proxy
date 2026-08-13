@@ -48,6 +48,7 @@ import {
   type IbmiViewRow,
 } from '../sql/pgadmin-ibmi-view.js';
 import { reorderParameters, translateSql, type Translation } from '../sql/translator.js';
+import { parsePgSavepointCommand, savepointCommandTag, translatePgSavepointToDb2 } from '../sql/transactions.js';
 
 interface PreparedStatement { sql: string; parameterOids: number[]; translation?: Translation; }
 interface BufferedDb2Execution {
@@ -366,8 +367,35 @@ export class ProxySession {
       return;
     }
 
-    if (isSavepointCommand(sql)) {
-      throw sqlError('0A000', 'SAVEPOINT, RELEASE SAVEPOINT and ROLLBACK TO SAVEPOINT are not supported by proxy v0.1');
+    const savepoint = parsePgSavepointCommand(sql);
+    if (savepoint) {
+      if (!this.inTransaction) {
+        throw sqlError('25P01', 'SAVEPOINT can only be used in transaction blocks');
+      }
+      if (this.transactionFailed && savepoint.action !== 'rollbackTo') {
+        throw sqlError('25P02', 'Current transaction is aborted, commands ignored until end of transaction block');
+      }
+
+      const db2Sql = translatePgSavepointToDb2(savepoint);
+      try {
+        await this.currentJob().execute(db2Sql);
+        // PostgreSQL ROLLBACK TO SAVEPOINT recovers an aborted transaction and
+        // leaves the outer transaction active. Db2 preserves the target
+        // savepoint, allowing psycopg to RELEASE it immediately afterwards.
+        if (savepoint.action === 'rollbackTo') this.transactionFailed = false;
+        this.logger.info('PostgreSQL savepoint mapped to IBM i', {
+          action: savepoint.action,
+          savepoint: savepoint.name,
+          database: this.client.database,
+        });
+      } catch (error) {
+        this.transactionFailed = true;
+        const mapped = mapDb2Error(error) as Error & { proxySql?: string };
+        mapped.proxySql = sql;
+        throw mapped;
+      }
+      this.send(commandComplete(savepointCommandTag(savepoint.action)));
+      return;
     }
 
     const rawKind = classify(sql);
@@ -1037,11 +1065,6 @@ function splitSimpleStatements(sql: string): string[] {
   const tail = sql.slice(start).trim();
   if (tail) statements.push(tail);
   return statements;
-}
-
-function isSavepointCommand(sql: string): boolean {
-  const compact = sql.trim().replace(/;$/, '');
-  return /^(?:SAVEPOINT\b|RELEASE\s+(?:SAVEPOINT\s+)?|ROLLBACK\s+TO(?:\s+SAVEPOINT)?\b)/i.test(compact);
 }
 
 function parseSearchPath(sql: string): string | undefined {

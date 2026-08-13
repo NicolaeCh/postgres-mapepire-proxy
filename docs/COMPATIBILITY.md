@@ -25,7 +25,7 @@
 |---|---|
 | SELECT/INSERT/UPDATE/DELETE/MERGE | pass-through after translation |
 | BEGIN/COMMIT/ROLLBACK | proxy-controlled on pinned Db2 job |
-| SAVEPOINT / ROLLBACK TO SAVEPOINT | not supported in v0.1; rejected with `0A000` |
+| SAVEPOINT / RELEASE / ROLLBACK TO SAVEPOINT | supported in 0.1.19 on the pinned Db2 job; PostgreSQL spellings are normalized to Db2 for i savepoint syntax |
 | `$1..$n` parameters | translated to `?`; NULL is forwarded; `bytea` bind values rejected in v0.1 |
 | LIMIT/OFFSET numeric literals | translated |
 | `value::type` simple casts | translated |

@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.18 reference implementation**
+Version: **0.1.19 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.18 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.18.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.19.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 
@@ -70,6 +70,12 @@ See `docs/VALIDATION.md`. This build environment could not resolve npm packages 
 - The build stage supplies synthetic non-secret configuration (`IBMI_RDB_NAME=BUILDTEST`, fake host/user/password) solely to compiled contract tests.
 - `verify-pgadmin-wire.mjs` also self-seeds `IBMI_RDB_NAME` before dynamically importing runtime configuration, so it can be run directly outside a container.
 - Runtime behavior is unchanged: the final image still requires the real `IBMI_RDB_NAME`, `IBMI_HOST`, `IBMI_USER`, and `IBMI_PASSWORD` from the deployment environment.
+
+### 0.1.19 psycopg nested transaction / hstore compatibility
+
+- Maps psycopg nested transaction SAVEPOINT / RELEASE / ROLLBACK TO commands to real Db2 for i savepoints on the pinned Mapepire job.
+- Returns an exact empty TypeInfo rowset for SQLAlchemy's optional `hstore` probe.
+- Extends the mandatory SQLAlchemy compatibility build gate to cover this stage of ContextForge v1.0.7 startup.
 
 ### 0.1.18 SQLAlchemy / psycopg bootstrap compatibility
 
