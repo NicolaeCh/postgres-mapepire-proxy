@@ -49,6 +49,9 @@ import {
 } from '../sql/pgadmin-ibmi-view.js';
 import { reorderParameters, translateSql, type Translation } from '../sql/translator.js';
 import { parsePgSavepointCommand, savepointCommandTag, translatePgSavepointToDb2 } from '../sql/transactions.js';
+import {
+  executePgAdvisoryLockQuery, parsePgAdvisoryLockQuery, pgAdvisoryLockFields, releaseAllPgAdvisoryLocks,
+} from '../sql/advisory-lock.js';
 
 interface PreparedStatement { sql: string; parameterOids: number[]; translation?: Translation; }
 interface BufferedDb2Execution {
@@ -180,6 +183,12 @@ export class ProxySession {
       if (!stmt) throw sqlError('26000', `Prepared statement ${d.name} does not exist`);
       this.send(parameterDescription(stmt.parameterOids));
 
+      const advisoryLock = parsePgAdvisoryLockQuery(stmt.sql);
+      if (advisoryLock) {
+        this.send(rowDescription(pgAdvisoryLockFields(advisoryLock)));
+        return;
+      }
+
       const local = await this.resolveSynthetic(stmt.sql);
       if (local) {
         this.validateSynthetic(local);
@@ -207,6 +216,13 @@ export class ProxySession {
     if (!portal) throw sqlError('34000', `Portal ${d.name} does not exist`);
     const stmt = this.prepared.get(portal.statementName);
     if (!stmt) throw sqlError('26000', `Prepared statement ${portal.statementName} does not exist`);
+
+    const advisoryLock = parsePgAdvisoryLockQuery(stmt.sql);
+    if (advisoryLock) {
+      portal.descriptionSent = true;
+      this.send(rowDescription(pgAdvisoryLockFields(advisoryLock)));
+      return;
+    }
 
     const local = await this.resolveSynthetic(stmt.sql);
     if (local) {
@@ -425,6 +441,21 @@ export class ProxySession {
       await this.currentJob().execute('ROLLBACK');
       this.inTransaction = false; this.transactionFailed = false;
       this.send(commandComplete('ROLLBACK'));
+      return;
+    }
+
+    const advisoryLock = parsePgAdvisoryLockQuery(sql);
+    if (advisoryLock) {
+      const result = executePgAdvisoryLockQuery(advisoryLock, this);
+      const value = result.rows[0]?.[0];
+      this.logger.info('PostgreSQL advisory lock handled by proxy session registry', {
+        action: advisoryLock.action,
+        key: advisoryLock.key,
+        acquired: advisoryLock.action === 'tryLock' ? value : undefined,
+        unlocked: advisoryLock.action === 'unlock' ? value : undefined,
+        database: this.client.database,
+      });
+      this.sendSynthetic(result, includeDescription);
       return;
     }
 
@@ -1004,6 +1035,13 @@ export class ProxySession {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    const releasedAdvisoryLocks = releaseAllPgAdvisoryLocks(this);
+    if (releasedAdvisoryLocks > 0) {
+      this.logger.info('Released PostgreSQL advisory locks for closed session', {
+        count: releasedAdvisoryLocks,
+        database: this.client.database,
+      });
+    }
     if (this.job) {
       const job = this.job; this.job = undefined;
       await this.pool.release(job);

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.20 - 2026-08-13
+
+- Implement PostgreSQL session advisory locks required by ContextForge v1.0.7 bootstrap (`pg_try_advisory_lock`, `pg_advisory_unlock`, `pg_advisory_unlock_all`).
+- Lock ownership is scoped to the PostgreSQL client session, is re-entrant for the same session, and is automatically released when that session closes.
+- Add exact boolean RowDescription/DataRow contracts for SQLAlchemy/psycopg extended-query execution so advisory-lock probes are no longer swallowed by the generic PostgreSQL-system firewall as NULL.
+- Add build gate `verify-contextforge-advisory-lock.mjs`.
+
 ## 0.1.19 - 2026-08-13
 
 - Add real PostgreSQL SAVEPOINT / RELEASE / ROLLBACK TO SAVEPOINT compatibility backed by Db2 for i savepoints, including psycopg 3 nested transaction spellings such as `RELEASE "_pg3_1"`.

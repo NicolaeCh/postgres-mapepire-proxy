@@ -77,3 +77,7 @@ The pgAdmin Tables collection is populated from live IBM i `QSYS2.SYSTABLES` row
 ## pgAdmin Tables / CREATE TABLE — version 0.1.9
 
 Supported: live table enumeration for IBM i `T`/`P` table-like objects, table node/property identity, basic CREATE TABLE, PostgreSQL SERIAL/SMALLSERIAL/BIGSERIAL identity semantics, and pgAdmin's virtual OWNER follow-up. PostgreSQL table inheritance, partitions, row-security, logical replication, PostgreSQL tablespaces/storage parameters and PostgreSQL privilege metadata are not claimed as IBM i equivalents.
+
+## 0.1.20 ContextForge advisory locks
+
+`pg_try_advisory_lock(bigint)`, `pg_advisory_unlock(bigint)`, and `pg_advisory_unlock_all()` are implemented with PostgreSQL session semantics inside a proxy process. This is sufficient for the supported single-proxy deployment used by ContextForge workers. Multiple independent proxy replicas would require an external/distributed lock backend to coordinate the same advisory-lock key across proxy processes.
