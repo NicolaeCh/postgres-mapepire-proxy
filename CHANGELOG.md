@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.21 - 2026-08-13
+
+- Add PostgreSQL DDL type translation required by ContextForge/Alembic fresh-schema creation on Db2 for i.
+- Map PostgreSQL bare `VARCHAR` to configurable `VARCHAR(1024)` by default, while preserving explicitly sized `VARCHAR(n)`.
+- Map `JSON`/`JSONB` and `TEXT` to UTF-8 `CLOB(2G)`, `BYTEA` to `BLOB(2G)`, and timezone-aware PostgreSQL timestamp/time DDL to Db2 `TIMESTAMP`/`TIME`.
+- Add `SQL_DDL_DEFAULT_VARCHAR_LENGTH` and build gate `verify-contextforge-ddl.mjs`.
+- Log a literal-redacted translated DDL shape on backend DDL failures so later Alembic compatibility failures are self-identifying without enabling full SQL logging.
+
 ## 0.1.20 - 2026-08-13
 
 - Implement PostgreSQL session advisory locks required by ContextForge v1.0.7 bootstrap (`pg_try_advisory_lock`, `pg_advisory_unlock`, `pg_advisory_unlock_all`).

@@ -505,8 +505,9 @@ export class ProxySession {
       } else {
         try { await this.currentJob().execute('ROLLBACK'); } catch { /* best effort */ }
       }
-      const mapped = mapDb2Error(error) as Error & { proxySql?: string };
+      const mapped = mapDb2Error(error) as Error & { proxySql?: string; proxyDb2Sql?: string };
       mapped.proxySql = sql;
+      mapped.proxyDb2Sql = translation.sql;
       throw mapped;
     }
 
@@ -987,8 +988,9 @@ export class ProxySession {
       } else {
         try { await this.currentJob().execute('ROLLBACK'); } catch { /* best effort */ }
       }
-      const mapped = mapDb2Error(error) as Error & { proxySql?: string };
+      const mapped = mapDb2Error(error) as Error & { proxySql?: string; proxyDb2Sql?: string };
       mapped.proxySql = sql;
+      mapped.proxyDb2Sql = translation.sql;
       throw mapped;
     }
   }
@@ -1024,6 +1026,11 @@ export class ProxySession {
       database: this.client.database,
     };
     if (config.sql.logFailedText && e?.proxySql) fields.sql = String(e.proxySql);
+    if (e?.proxyDb2Sql && /^\s*(?:CREATE|ALTER|DROP|TRUNCATE|COMMENT|GRANT|REVOKE)\b/i.test(String(e.proxyDb2Sql))) {
+      // DDL failures are difficult to diagnose from SQLSTATE alone. Include a
+      // compact structural form by default, but redact quoted literal values.
+      fields.db2SqlShape = safeDdlFailureShape(String(e.proxyDb2Sql));
+    }
     this.logger.warn('PostgreSQL session command failed', fields);
     this.send(errorResponse({
       code: e?.sqlstate ?? 'XX000',
@@ -1047,6 +1054,16 @@ export class ProxySession {
       await this.pool.release(job);
     }
   }
+}
+
+
+function safeDdlFailureShape(sql: string): string {
+  return sql
+    .replace(/X'[^']*(?:''[^']*)*'/gi, "X'<redacted>'")
+    .replace(/'[^']*(?:''[^']*)*'/g, "'<redacted>'")
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 4000);
 }
 
 function frontendMessageName(type: string): string {

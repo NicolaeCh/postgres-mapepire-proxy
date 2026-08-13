@@ -137,6 +137,7 @@ export const config = {
     pgCatalogCompat: bool('SQL_ENABLE_PG_CATALOG_COMPAT', true),
     allowMultiStatement: bool('SQL_ALLOW_MULTI_STATEMENT', false),
     maxRows: num('SQL_MAX_ROWS', 0),
+    ddlDefaultVarcharLength: num('SQL_DDL_DEFAULT_VARCHAR_LENGTH', 1024),
     logText: bool('SQL_LOG_TEXT', false),
     logFailedText: bool('SQL_LOG_FAILED_TEXT', false),
   },

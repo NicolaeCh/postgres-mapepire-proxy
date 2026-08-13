@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.20 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.20
+podman build -t postgres-mapepire-proxy:0.1.21 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.21
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -145,6 +145,10 @@ PostgreSQL `SMALLSERIAL`/`SERIAL`/`BIGSERIAL` column pseudo-types are translated
 The proxy implements a Virtual PostgreSQL System Layer audited against pgAdmin 4 9.17. Release 0.1.8 extends that contract beyond login into the database/schema browser: dashboard rows, database ACL/default-ACL dictionaries, role/tablespace descriptions, scheduler probes, and schema nodes/properties/ACLs now return the exact pgAdmin field shapes. Schema discovery is backed by live `QSYS2.SYSSCHEMAS`, while normal application SQL continues through Mapepire. Basic pgAdmin `CREATE SCHEMA ... AUTHORIZATION ...` is translated to IBM i service-user DDL. See `docs/PGADMIN_COMPATIBILITY.md`.
 
 For pgAdmin 9.17 use `PG_SERVER_VERSION=14.0`; if reusing an `.env` from 0.1.5 or earlier, update that value explicitly.
+
+## ContextForge Alembic DDL compatibility (0.1.21)
+
+ContextForge v1.0.7 creates its fresh PostgreSQL schema through Alembic. PostgreSQL DDL types emitted by SQLAlchemy are translated to persistent Db2 for i equivalents before Mapepire execution: lengthless `VARCHAR` receives a configurable length (`SQL_DDL_DEFAULT_VARCHAR_LENGTH`, default `1024`), `JSON`/`JSONB` and `TEXT` use UTF-8 `CLOB(2G)`, `BYTEA` uses `BLOB(2G)`, and timezone-aware timestamp/time declarations use Db2 `TIMESTAMP`/`TIME`. Explicitly sized `VARCHAR(n)` is preserved.
 
 ## ContextForge advisory-lock compatibility (0.1.20)
 

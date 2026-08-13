@@ -71,4 +71,38 @@ describe('PostgreSQL DDL compatibility', () => {
     expect(sql).toContain('CASE WHEN EXISTS (SELECT 1 FROM SYSIBM.TABLES');
     expect(sql).toContain('THEN 1 ELSE 0 END AS PRESENT FROM SYSIBM.SYSDUMMY1');
   });
+
+  it('maps ContextForge PostgreSQL DDL types to Db2 for i persistent types', () => {
+    const sql = translateSql(
+      `create table gateways (
+        id varchar(36) not null,
+        name varchar not null,
+        capabilities json not null,
+        auth_value jsonb,
+        description text,
+        binary_content bytea,
+        created_at timestamp with time zone not null,
+        PRIMARY KEY (id),
+        UNIQUE (name)
+      )`,
+      opts,
+    ).sql;
+    expect(sql).toContain('ID VARCHAR(36) NOT NULL');
+    expect(sql).toContain('NAME VARCHAR(1024) NOT NULL');
+    expect(sql).toContain('CAPABILITIES CLOB(2G) CCSID 1208 NOT NULL');
+    expect(sql).toContain('AUTH_VALUE CLOB(2G) CCSID 1208');
+    expect(sql).toContain('DESCRIPTION CLOB(2G) CCSID 1208');
+    expect(sql).toContain('BINARY_CONTENT BLOB(2G)');
+    expect(sql).toContain('CREATED_AT TIMESTAMP NOT NULL');
+  });
+
+  it('uses the configured length only for PostgreSQL VARCHAR without a length', () => {
+    const sql = translateSql('create table t (a varchar, b varchar(36))', {
+      ...opts,
+      ddlDefaultVarcharLength: 2048,
+    }).sql;
+    expect(sql).toContain('A VARCHAR(2048)');
+    expect(sql).toContain('B VARCHAR(36)');
+  });
+
 });
