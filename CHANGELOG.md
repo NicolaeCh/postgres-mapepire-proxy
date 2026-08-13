@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.18 - 2026-08-13
+
+- Add SQLAlchemy 2.0 / psycopg bootstrap compatibility for `SELECT pg_catalog.version()` and `SHOW transaction isolation level`.
+- Return a non-NULL PostgreSQL-compatible version scalar so SQLAlchemy can initialize its PostgreSQL dialect through the proxy.
+
 ## 0.1.17 - 2026-08-12
 
 - Fixed pgAdmin 9.16+ Columns nodes being misclassified as column properties because the nodes SQL itself references `att.attidentity`; node requests now return the required `oid` field.

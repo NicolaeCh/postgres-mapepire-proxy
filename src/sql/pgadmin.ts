@@ -733,8 +733,8 @@ function evaluateBuiltinExpression(
   if (/^(?:pg_catalog\.)?inet_server_port\s*\(\s*\)$/i.test(core)) {
     return { field: int4(alias ?? 'inet_server_port'), value: context.serverPort ?? 5432 };
   }
-  if (/^version\s*\(\s*\)$/i.test(core)) {
-    return { field: text(alias ?? 'version'), value: 'PostgreSQL 14.0 compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.15)' };
+  if (/^(?:pg_catalog\.)?version\s*\(\s*\)$/i.test(core)) {
+    return { field: text(alias ?? 'version'), value: 'PostgreSQL 14.0 compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.18)' };
   }
   const setting = core.match(/^(?:pg_catalog\.)?current_setting\s*\(\s*'([^']+)'(?:\s*,\s*(?:true|false))?\s*\)$/i);
   if (setting) {

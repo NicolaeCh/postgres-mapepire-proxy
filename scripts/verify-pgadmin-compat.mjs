@@ -31,6 +31,13 @@ expectFields(
 );
 assert.ok(local("SET client_encoding='UTF8'"));
 expectFields('SELECT version()', ['version']);
+// SQLAlchemy 2.0.51 uses the schema-qualified form during dialect.initialize().
+const sqlalchemyVersion = expectFields('SELECT pg_catalog.version()', ['version']);
+assert.equal(sqlalchemyVersion.rows.length, 1);
+assert.equal(typeof sqlalchemyVersion.rows[0][0], 'string');
+assert.match(sqlalchemyVersion.rows[0][0], /PostgreSQL\s+\d+(?:\.\d+)?/i);
+assert.deepEqual(local('SHOW transaction isolation level')?.rows, [['read committed']]);
+assert.deepEqual(local('SHOW standard_conforming_strings')?.rows, [['on']]);
 expectFields(`
 SELECT db.oid as did, db.datname, db.datallowconn,
        pg_encoding_to_char(db.encoding) AS serverencoding,

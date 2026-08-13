@@ -13,7 +13,12 @@ const oneText = (name: string, value: unknown): SyntheticResult => ({
   tag: 'SELECT 1',
 });
 
-export function environmentQuery(sql: string, database: string, currentSchema: string): SyntheticResult | undefined {
+export function environmentQuery(
+  sql: string,
+  database: string,
+  currentSchema: string,
+  serverVersion = '14.0',
+): SyntheticResult | undefined {
   const compact = sql.trim().replace(/;$/, '').replace(/\s+/g, ' ');
   if (/^show\s+max_identifier_length$/i.test(compact)) return oneText('max_identifier_length', 128);
   if (/^show\s+server_version$/i.test(compact)) return oneText('server_version', '14.0');
@@ -21,12 +26,23 @@ export function environmentQuery(sql: string, database: string, currentSchema: s
   if (/^show\s+standard_conforming_strings$/i.test(compact)) return oneText('standard_conforming_strings', 'on');
   if (/^show\s+integer_datetimes$/i.test(compact)) return oneText('integer_datetimes', 'on');
   if (/^show\s+transaction_isolation$/i.test(compact)) return oneText('transaction_isolation', 'read committed');
+  // SQLAlchemy PostgreSQL dialect initialization uses the SQL-standard SHOW
+  // spelling rather than PostgreSQL's underscore setting name. psycopg reads
+  // the first column positionally, but keep the PostgreSQL setting name for
+  // clients that inspect result metadata.
+  if (/^show\s+transaction\s+isolation\s+level$/i.test(compact)) return oneText('transaction_isolation', 'read committed');
+  if (/^show\s+default_transaction_isolation$/i.test(compact)) return oneText('default_transaction_isolation', 'read committed');
   if (/^show\s+client_encoding$/i.test(compact)) return oneText('client_encoding', 'UTF8');
   if (/^show\s+search_path$/i.test(compact)) return oneText('search_path', currentSchema);
   if (/^show\s+timezone$/i.test(compact)) return oneText('TimeZone', 'UTC');
   if (/^show\s+datestyle$/i.test(compact)) return oneText('DateStyle', 'ISO, MDY');
   if (/^show\s+default_transaction_read_only$/i.test(compact)) return oneText('default_transaction_read_only', 'off');
-  if (/^select\s+version\(\)/i.test(compact)) return oneText('version', 'PostgreSQL 14.0 compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.15)');
+  // SQLAlchemy 2.x PostgreSQL dialect asks pg_catalog.version(), while pgAdmin
+  // commonly asks unqualified version(). Both must return a non-NULL scalar
+  // whose text contains a PostgreSQL major/minor version.
+  if (/^select\s+(?:pg_catalog\.)?version\s*\(\s*\)$/i.test(compact)) {
+    return oneText('version', `PostgreSQL ${serverVersion} compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.18)`);
+  }
   if (/^select\s+current_database\(\)/i.test(compact)) return oneText('current_database', database || 'ibmi');
   if (/^select\s+current_schema\(\)(?:\s+as\s+([a-z_][a-z0-9_$]*))?$/i.test(compact)) {
     const alias = compact.match(/\s+as\s+([a-z_][a-z0-9_$]*)$/i)?.[1] ?? 'current_schema';

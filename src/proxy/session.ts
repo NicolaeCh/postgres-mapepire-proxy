@@ -499,7 +499,7 @@ export class ProxySession {
   }
 
   private async resolveSynthetic(sql: string): Promise<SyntheticResult | undefined> {
-    const env = environmentQuery(sql, config.pg.databaseName, this.currentSchema);
+    const env = environmentQuery(sql, config.pg.databaseName, this.currentSchema, config.pg.serverVersion);
     if (env) return env;
 
     // Schema browser queries are keyed by pg_namespace as their PRIMARY
