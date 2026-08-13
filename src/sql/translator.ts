@@ -130,6 +130,7 @@ function serialReplacement(type: string): string {
  *   Text()                -> TEXT
  *   LargeBinary()         -> BYTEA
  *   DateTime(timezone=1)  -> TIMESTAMP WITH TIME ZONE
+ *   DateTime()            -> TIMESTAMP WITHOUT TIME ZONE
  *
  * Db2 for i requires an explicit VARCHAR length and has no native JSON data
  * type.  Keep this rewrite scoped to CREATE/ALTER TABLE so normal expressions,
@@ -170,8 +171,8 @@ function rewriteDb2TypePrefix(rest: string, defaultVarcharLength: number): strin
   let value = rest;
 
   // Order matters: rewrite the longest PostgreSQL type spellings first.
-  value = value.replace(/^TIMESTAMP\s+WITH\s+TIME\s+ZONE\b/i, 'TIMESTAMP');
-  value = value.replace(/^TIME\s+WITH\s+TIME\s+ZONE\b/i, 'TIME');
+  value = value.replace(/^TIMESTAMP\s+(?:WITH|WITHOUT)\s+TIME\s+ZONE\b/i, 'TIMESTAMP');
+  value = value.replace(/^TIME\s+(?:WITH|WITHOUT)\s+TIME\s+ZONE\b/i, 'TIME');
   value = value.replace(/^DOUBLE\s+PRECISION\b/i, 'DOUBLE');
   value = value.replace(/^BYTEA\b/i, 'BLOB(2G)');
   value = value.replace(/^JSONB?\b/i, 'CLOB(2G) CCSID 1208');

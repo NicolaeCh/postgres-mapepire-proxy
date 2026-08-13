@@ -83,6 +83,8 @@ Supported: live table enumeration for IBM i `T`/`P` table-like objects, table no
 `pg_try_advisory_lock(bigint)`, `pg_advisory_unlock(bigint)`, and `pg_advisory_unlock_all()` are implemented with PostgreSQL session semantics inside a proxy process. This is sufficient for the supported single-proxy deployment used by ContextForge workers. Multiple independent proxy replicas would require an external/distributed lock backend to coordinate the same advisory-lock key across proxy processes.
 
 
-## 0.1.21 ContextForge Alembic DDL types
+## 0.1.22 ContextForge Alembic DDL types
 
 Fresh ContextForge v1.0.7 Alembic migrations are supported by translating PostgreSQL-only/incomplete DDL types before IBM i execution: bare `VARCHAR`, `JSON`/`JSONB`, `TEXT`, `BYTEA`, and timezone-aware timestamp/time declarations. Explicit PostgreSQL `VARCHAR(n)` lengths remain unchanged.
+
+- `TIMESTAMP WITHOUT TIME ZONE` and `TIMESTAMP WITH TIME ZONE` are normalized to Db2 for i `TIMESTAMP` for CREATE/ALTER TABLE DDL.

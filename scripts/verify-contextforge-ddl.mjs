@@ -21,7 +21,7 @@ const gateways = translateSql(`CREATE TABLE gateways (
   created_at TIMESTAMP WITH TIME ZONE NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
   is_active BOOLEAN NOT NULL,
-  last_seen TIMESTAMP,
+  last_seen TIMESTAMP WITHOUT TIME ZONE,
   auth_type VARCHAR,
   auth_value JSON,
   PRIMARY KEY (id),
@@ -33,7 +33,8 @@ assert.match(gateways, /NAME VARCHAR\(1024\) NOT NULL/i);
 assert.match(gateways, /CAPABILITIES CLOB\(2G\) CCSID 1208 NOT NULL/i);
 assert.match(gateways, /CREATED_AT TIMESTAMP NOT NULL/i);
 assert.doesNotMatch(gateways, /\bJSONB?\b/i);
-assert.doesNotMatch(gateways, /TIMESTAMP WITH TIME ZONE/i);
+assert.doesNotMatch(gateways, /TIMESTAMP (?:WITH|WITHOUT) TIME ZONE/i);
+assert.match(gateways, /LAST_SEEN TIMESTAMP(?:\s|,)/i);
 assert.doesNotMatch(gateways, /\bVARCHAR\s+(?:NOT|NULL|,)/i);
 
 const resources = translateSql(`CREATE TABLE resources (

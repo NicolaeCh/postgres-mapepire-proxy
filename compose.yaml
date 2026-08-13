@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: postgres-mapepire-proxy:0.1.21
+    image: postgres-mapepire-proxy:0.1.22
     env_file:
       - .env
     ports:

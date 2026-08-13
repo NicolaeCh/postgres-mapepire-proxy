@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.22
+
+- Translate PostgreSQL `TIMESTAMP WITHOUT TIME ZONE` to Db2 for i `TIMESTAMP`.
+- Translate PostgreSQL `TIME WITHOUT TIME ZONE` to Db2 for i `TIME`.
+- Strengthen the ContextForge DDL build verifier with the exact SQLAlchemy `DateTime(timezone=False)` spelling used by ContextForge v1.0.7.
+
 ## 0.1.21 - 2026-08-13
 
 - Add PostgreSQL DDL type translation required by ContextForge/Alembic fresh-schema creation on Db2 for i.

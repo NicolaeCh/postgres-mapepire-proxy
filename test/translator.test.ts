@@ -82,6 +82,8 @@ describe('PostgreSQL DDL compatibility', () => {
         description text,
         binary_content bytea,
         created_at timestamp with time zone not null,
+        last_seen timestamp without time zone,
+        local_time time without time zone,
         PRIMARY KEY (id),
         UNIQUE (name)
       )`,
@@ -94,6 +96,10 @@ describe('PostgreSQL DDL compatibility', () => {
     expect(sql).toContain('DESCRIPTION CLOB(2G) CCSID 1208');
     expect(sql).toContain('BINARY_CONTENT BLOB(2G)');
     expect(sql).toContain('CREATED_AT TIMESTAMP NOT NULL');
+    expect(sql).toContain('LAST_SEEN TIMESTAMP');
+    expect(sql).not.toContain('TIMESTAMP WITHOUT TIME ZONE');
+    expect(sql).toContain('LOCAL_TIME TIME');
+    expect(sql).not.toContain('TIME WITHOUT TIME ZONE');
   });
 
   it('uses the configured length only for PostgreSQL VARCHAR without a length', () => {
