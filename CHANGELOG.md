@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.26 - 2026-08-14
+
+- Fix the container build regression introduced by 0.1.25: `verify-pgadmin-wire.mjs` now implements the required `prepareSchema()` fake-pool contract.
+- Keep `SessionJobPool.prepareSchema()` mandatory in production so schema routing and transactional-schema checks cannot be silently bypassed.
+- Update stale multi-architecture build-script default tags to 0.1.26.
+
 ## 0.1.25 - 2026-08-13
 
 - Separate PostgreSQL database identity from effective IBM i schema in logs, health data, and client-visible introspection.

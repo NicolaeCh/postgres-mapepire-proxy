@@ -26,6 +26,16 @@ const fakePool = {
   acquire: async () => fakeJob,
   release: async () => {},
   invalidate: async () => {},
+  prepareSchema: async (_job, schema) => ({
+    schema,
+    systemSchema: schema,
+    exists: true,
+    hasQsqjrn: true,
+    hasLibraryJournalInheritance: false,
+    transactionalWritesConfigured: true,
+    sqlSchemaJournalReady: true,
+    checkedAt: '2000-01-01T00:00:00.000Z',
+  }),
 };
 const logger = {
   debug() {}, info() {}, warn() {}, error() {},

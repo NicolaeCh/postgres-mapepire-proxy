@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.25 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.25
+podman build -t postgres-mapepire-proxy:0.1.26 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.26
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -50,11 +50,11 @@ curl http://127.0.0.1:8080/readyz
 ```
 
 
-## Database, schema and transactional IBM i schemas (0.1.25)
+## Database, schema and transactional IBM i schemas (0.1.26)
 
 The PostgreSQL database and schema are now explicit, independently observable concepts. `IBMI_RDB_NAME` remains the single PostgreSQL database identity. `IBMI_CURRENT_SCHEMA` is the proxy-wide default schema, while each PostgreSQL connection may select a different IBM i schema using standard `search_path`, `SET SCHEMA`, `set_config('search_path', ...)`, or startup `options=-csearch_path=...`. `SHOW search_path` and `SELECT current_schema()` return the effective schema. Authentication/error logs include the configured schema, the backend-confirmed Db2 `CURRENT SCHEMA`, and how it was selected.
 
-Because the proxy implements PostgreSQL transactions with Mapepire auto-commit disabled, IBM i data-changing tables must be journaled. The proxy resolves the SQL schema to its IBM i `SYSTEM_SCHEMA_NAME` before journal capability checks, so long SQL schema names are handled correctly. Release 0.1.25 preflights the selected schema for an SQL-schema `QSQJRN` or `STRJRNLIB`-style inheritance. `IBMI_REQUIRE_TRANSACTIONAL_SCHEMA=true` turns this into a fail-fast connection guard. `IBMI_AUTO_CREATE_CURRENT_SCHEMA=true` can create a missing application schema using SQL `CREATE SCHEMA`; it does not modify journaling policy for an existing library.
+Because the proxy implements PostgreSQL transactions with Mapepire auto-commit disabled, IBM i data-changing tables must be journaled. The proxy resolves the SQL schema to its IBM i `SYSTEM_SCHEMA_NAME` before journal capability checks, so long SQL schema names are handled correctly. Release 0.1.26 preflights the selected schema for an SQL-schema `QSQJRN` or `STRJRNLIB`-style inheritance. `IBMI_REQUIRE_TRANSACTIONAL_SCHEMA=true` turns this into a fail-fast connection guard. `IBMI_AUTO_CREATE_CURRENT_SCHEMA=true` can create a missing application schema using SQL `CREATE SCHEMA`; it does not modify journaling policy for an existing library.
 
 Per-application example with psycopg/SQLAlchemy:
 

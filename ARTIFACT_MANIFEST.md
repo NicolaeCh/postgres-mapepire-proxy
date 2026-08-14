@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.25 reference implementation**
+Version: **0.1.26 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.25 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.25.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.26.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 
@@ -112,10 +112,17 @@ See `docs/VALIDATION.md`. This build environment could not resolve npm packages 
 - PostgreSQL-only partition/inheritance and unsupported table-child collections are virtualized locally so PostgreSQL `::OID` casts do not reach Db2 for i.
 - `scripts/verify-pgadmin-table-child.mjs` is a mandatory image-build contract gate.
 
-## 0.1.25 additions
+## 0.1.26 additions
 
 - PostgreSQL `search_path` / Db2 `CURRENT SCHEMA` routing and backend confirmation.
 - IBM i schema journaling capability preflight and optional strict guard.
 - Optional missing SQL-schema provisioning.
 - Build verifiers `verify-schema-routing.mjs` and `verify-schema-capabilities.mjs`.
-- `docs/BUILD_FIX_0.1.25.md`.
+- `docs/BUILD_FIX_0.1.26.md`.
+
+## 0.1.26 additions
+
+- Build-time pgAdmin wire verifier updated to the schema-aware `SessionJobPool` contract introduced in 0.1.25.
+- `prepareSchema()` remains a mandatory production pool method.
+- Multi-architecture build helper defaults aligned with the current release tag.
+- `docs/BUILD_FIX_0.1.26.md`.
