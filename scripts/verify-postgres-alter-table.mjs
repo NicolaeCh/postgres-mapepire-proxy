@@ -39,7 +39,7 @@ assert.ok(rename);
 const plan = definitions.planRename(rename, 'IS_ACTIVE');
 assert.ok(plan);
 const db2 = plan.db2Sql.replace(/\s+/g, ' ').trim();
-assert.match(db2, /^CREATE OR REPLACE TABLE TOOLS \(/);
+assert.match(db2, /^CREATE OR REPLACE TABLE TOOLS\s*\(/);
 assert.match(db2, /ENABLED FOR COLUMN IS_ACTIVE BOOLEAN NOT NULL/);
 assert.match(db2, /CONSTRAINT PK_TOOLS PRIMARY KEY \(ID\)/);
 assert.match(db2, /CONSTRAINT UQ_TOOLS_SLUG UNIQUE \(SLUG\)/);

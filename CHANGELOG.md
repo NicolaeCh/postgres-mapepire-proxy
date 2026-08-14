@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.35 - 2026-08-14
+
+- Fix the container build regression in `verify-postgres-alter-table.mjs`: the CREATE OR REPLACE TABLE regression now accepts both valid whitespace forms `TABLE TOOLS (` and `TABLE TOOLS(`.
+- No SQL generation or runtime DDL semantics changed from 0.1.34.
+
 ## 0.1.34 - 2026-08-14
 
 - Replace the 0.1.33 empty-table `ADD COLUMN ... NOT NULL` emulation after live IBM i returned `SQL0952 / SQLSTATE 57014` on `ALTER COLUMN ... SET NOT NULL`.
