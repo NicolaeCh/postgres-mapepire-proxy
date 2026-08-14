@@ -150,4 +150,24 @@ describe('PostgreSQL DDL compatibility', () => {
     );
   });
 
+  it('normalizes PostgreSQL-style Boolean defaults to Db2 TRUE/FALSE constants', () => {
+    const sql = translateSql(
+      `create table flags (
+        enabled boolean default '1',
+        reachable boolean default 0,
+        archived boolean default 'false',
+        casted boolean default '1'::boolean,
+        version integer default '1',
+        note varchar(10) default '1'
+      )`,
+      opts,
+    ).sql;
+    expect(sql).toContain('ENABLED BOOLEAN DEFAULT TRUE');
+    expect(sql).toContain('REACHABLE BOOLEAN DEFAULT FALSE');
+    expect(sql).toContain('ARCHIVED BOOLEAN DEFAULT FALSE');
+    expect(sql).toContain('CASTED BOOLEAN DEFAULT TRUE');
+    expect(sql).toContain("VERSION INTEGER DEFAULT '1'");
+    expect(sql).toContain("NOTE VARCHAR(10) DEFAULT '1'");
+  });
+
 });

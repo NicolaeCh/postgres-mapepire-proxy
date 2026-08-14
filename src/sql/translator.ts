@@ -202,7 +202,61 @@ function rewriteDb2TypePrefix(rest: string, defaultVarcharLength: number): strin
   value = value.replace(/^VARCHAR\b(?!\s*\()/i, `VARCHAR(${varcharLength})`);
   value = value.replace(/^CHARACTER\s+VARYING\b(?!\s*\()/i, `VARCHAR(${varcharLength})`);
 
+  // PostgreSQL accepts several textual/numeric spellings for Boolean values
+  // and SQLAlchemy commonly renders server_default="1" as DEFAULT '1'.
+  // Db2 for i is stricter specifically for a BOOLEAN column DEFAULT: the
+  // CREATE/ALTER TABLE grammar permits only the Boolean constants TRUE/FALSE.
+  // Normalize only Boolean columns so defaults on VARCHAR/numeric columns keep
+  // their original PostgreSQL meaning.
+  if (/^BOOLEAN\b/i.test(value)) value = rewriteDb2BooleanDefault(value);
+
   return value;
+}
+
+function rewriteDb2BooleanDefault(definitionTail: string): string {
+  const normalize = (literal: string): 'TRUE' | 'FALSE' | undefined => {
+    let value = literal.trim();
+    if (value.startsWith("'") && value.endsWith("'")) {
+      value = value.slice(1, -1).replace(/''/g, "'");
+    }
+    switch (value.toLowerCase()) {
+      case '1':
+      case 't':
+      case 'true':
+      case 'y':
+      case 'yes':
+      case 'on':
+        return 'TRUE';
+      case '0':
+      case 'f':
+      case 'false':
+      case 'n':
+      case 'no':
+      case 'off':
+        return 'FALSE';
+      default:
+        return undefined;
+    }
+  };
+
+  // rewritePgCasts() runs before DDL normalization, so PostgreSQL defaults
+  // written as DEFAULT '1'::boolean arrive here as DEFAULT CAST('1' AS boolean).
+  let out = definitionTail.replace(
+    /\bDEFAULT\s+CAST\(\s*('(?:[^']|'')*'|[A-Za-z0-9_+-]+)\s+AS\s+BOOLEAN\s*\)/i,
+    (match: string, literal: string) => {
+      const value = normalize(literal);
+      return value ? `DEFAULT ${value}` : match;
+    },
+  );
+
+  out = out.replace(
+    /\bDEFAULT\s+('(?:[^']|'')*'|[A-Za-z0-9_+-]+)/i,
+    (match: string, literal: string) => {
+      const value = normalize(literal);
+      return value ? `DEFAULT ${value}` : match;
+    },
+  );
+  return out;
 }
 
 /**

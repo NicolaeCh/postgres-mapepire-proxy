@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.26 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.26
+podman build -t postgres-mapepire-proxy:0.1.27 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.27
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -49,6 +49,15 @@ PGPASSWORD='<PG_PROXY_PASSWORD>' psql -h 127.0.0.1 -p 5432 -U proxyuser -d ibmi 
 curl http://127.0.0.1:8080/readyz
 ```
 
+
+## PostgreSQL Boolean defaults and prepared-statement cleanup (0.1.27)
+
+Release 0.1.27 adds two general PostgreSQL compatibility rules discovered while running SQLAlchemy/Alembic through psycopg 3.3.x:
+
+- PostgreSQL/SQLAlchemy Boolean defaults such as `BOOLEAN DEFAULT '1'`, `DEFAULT 1`, `DEFAULT '0'`, and textual true/false spellings are normalized to Db2 for i `DEFAULT TRUE` / `DEFAULT FALSE`. Db2 for i accepts several Boolean spellings for assignment, but Boolean column defaults specifically require the Boolean constants.
+- SQL-level PostgreSQL `DEALLOCATE [PREPARE] name|ALL` is consumed by the proxy session registry and never sent to Db2. This covers psycopg prepared-statement cache maintenance after `ROLLBACK` and also supports clients issuing named `DEALLOCATE`.
+
+These rules are client-neutral and apply to any PostgreSQL application using the proxy.
 
 ## Database, schema and transactional IBM i schemas (0.1.26)
 

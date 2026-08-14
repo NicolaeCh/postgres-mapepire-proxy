@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.27 - 2026-08-14
+
+- Translate PostgreSQL/SQLAlchemy Boolean column defaults (`'1'`, `1`, `'0'`, true/false aliases) to the Db2 for i Boolean constants `TRUE` / `FALSE` in CREATE/ALTER TABLE DDL.
+- Handle PostgreSQL `DEALLOCATE [PREPARE] name|ALL` inside the proxy session registry instead of forwarding it to Db2, fixing psycopg prepared-statement cleanup after rollback.
+- Add a build-time compatibility verifier covering the ContextForge A2A Boolean DDL shape and the psycopg `ROLLBACK` → `DEALLOCATE ALL` sequence.
+
 ## 0.1.26 - 2026-08-14
 
 - Fix the container build regression introduced by 0.1.25: `verify-pgadmin-wire.mjs` now implements the required `prepareSchema()` fake-pool contract.

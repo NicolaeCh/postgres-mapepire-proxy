@@ -52,6 +52,7 @@ import {
 import { parsePgReturning, reorderParameters, translateSql, type Translation } from '../sql/translator.js';
 import { DdlForeignKeyTypeRegistry } from '../sql/ddl-foreign-key.js';
 import { parsePgSavepointCommand, savepointCommandTag, translatePgSavepointToDb2 } from '../sql/transactions.js';
+import { parsePgDeallocate } from '../sql/prepared-control.js';
 import {
   executePgAdvisoryLockQuery, parsePgAdvisoryLockQuery, pgAdvisoryLockFields, releaseAllPgAdvisoryLocks,
 } from '../sql/advisory-lock.js';
@@ -520,6 +521,36 @@ export class ProxySession {
       this.inTransaction = false; this.transactionFailed = false;
       await this.restoreLocalSearchPath();
       this.send(commandComplete('ROLLBACK'));
+      return;
+    }
+
+    const deallocate = parsePgDeallocate(sql);
+    if (deallocate) {
+      if (deallocate.action === 'all') {
+        const statementCount = this.prepared.size;
+        const portalCount = this.portals.size;
+        this.prepared.clear();
+        this.portals.clear();
+        this.logger.debug('PostgreSQL DEALLOCATE ALL handled by proxy session registry', {
+          database: this.client.database,
+          preparedStatementsCleared: statementCount,
+          portalsCleared: portalCount,
+        });
+      } else {
+        const name = deallocate.name ?? '';
+        if (!this.prepared.has(name)) {
+          throw sqlError('26000', `Prepared statement ${name} does not exist`);
+        }
+        this.prepared.delete(name);
+        for (const [portalName, portal] of this.portals.entries()) {
+          if (portal.statementName === name) this.portals.delete(portalName);
+        }
+        this.logger.debug('PostgreSQL DEALLOCATE handled by proxy session registry', {
+          database: this.client.database,
+          preparedStatement: name,
+        });
+      }
+      this.send(commandComplete('DEALLOCATE'));
       return;
     }
 

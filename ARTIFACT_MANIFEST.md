@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.26 reference implementation**
+Version: **0.1.27 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.26 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.26.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.27.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 
@@ -126,3 +126,10 @@ See `docs/VALIDATION.md`. This build environment could not resolve npm packages 
 - `prepareSchema()` remains a mandatory production pool method.
 - Multi-architecture build helper defaults aligned with the current release tag.
 - `docs/BUILD_FIX_0.1.26.md`.
+
+## 0.1.27 additions
+
+- `src/sql/prepared-control.ts` parses PostgreSQL SQL-level `DEALLOCATE` commands so they are handled by the session registry rather than Db2.
+- DDL translation normalizes PostgreSQL-style Boolean defaults to Db2 for i `TRUE` / `FALSE`.
+- `scripts/verify-postgres-session-control.mjs` validates both the Boolean-default rewrite and psycopg rollback/deallocation cleanup contract.
+- `docs/BUILD_FIX_0.1.27.md`.

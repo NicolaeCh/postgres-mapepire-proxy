@@ -1,0 +1,94 @@
+import assert from 'node:assert/strict';
+
+// ProxySession imports runtime configuration. Keep the build-time contract
+// deterministic and independent from deployment credentials.
+process.env.IBMI_RDB_NAME ??= 'BUILDTEST';
+process.env.IBMI_HOST ??= 'build-test.invalid';
+process.env.IBMI_USER ??= 'build-test';
+process.env.IBMI_PASSWORD ??= 'build-test';
+process.env.PG_PROXY_USER ??= 'proxyuser';
+process.env.PG_PROXY_PASSWORD ??= 'proxypass';
+process.env.DEFAULT_SCHEMA ??= 'MYLIB';
+process.env.PG_SERVER_VERSION ??= '14.0';
+
+const { parsePgDeallocate } = await import('../dist/src/sql/prepared-control.js');
+const { translateSql } = await import('../dist/src/sql/translator.js');
+const { ProxySession } = await import('../dist/src/proxy/session.js');
+
+assert.deepEqual(parsePgDeallocate('DEALLOCATE ALL'), { action: 'all' });
+assert.deepEqual(parsePgDeallocate('DEALLOCATE PREPARE "_pg3_1"'), { action: 'one', name: '_pg3_1' });
+assert.equal(parsePgDeallocate('DEALLOCATE DESCRIPTOR D1'), undefined);
+
+const opts = {
+  uppercaseIdentifiers: true,
+  informationSchemaRewrite: true,
+  pgCatalogCompat: true,
+  allowMultiStatement: false,
+  maxRows: 0,
+  ddlDefaultVarcharLength: 1024,
+};
+const ddl = translateSql(`CREATE TABLE a2a_agents (
+  id VARCHAR(36) NOT NULL,
+  enabled BOOLEAN DEFAULT '1',
+  reachable BOOLEAN DEFAULT '0',
+  casted BOOLEAN DEFAULT '1'::boolean,
+  version INTEGER DEFAULT '1' NOT NULL
+)`, opts).sql;
+assert.match(ddl, /ENABLED BOOLEAN DEFAULT TRUE/i);
+assert.match(ddl, /REACHABLE BOOLEAN DEFAULT FALSE/i);
+assert.match(ddl, /CASTED BOOLEAN DEFAULT TRUE/i);
+assert.match(ddl, /VERSION INTEGER DEFAULT '1'/i);
+assert.doesNotMatch(ddl, /BOOLEAN\s+DEFAULT\s+'[01]'/i);
+
+// Validate that psycopg's post-ROLLBACK DEALLOCATE ALL is consumed by the
+// PostgreSQL session layer and is never forwarded to Db2, whose DEALLOCATE
+// grammar is for descriptors and rejects PostgreSQL's ALL token.
+const executed = [];
+const fakeJob = {
+  execute: async (sql) => {
+    executed.push(String(sql));
+    return { has_results: false, data: [], is_done: true, update_count: 0 };
+  },
+};
+const fakePool = {
+  acquire: async () => fakeJob,
+  release: async () => {},
+  invalidate: async () => {},
+  prepareSchema: async (_job, schema) => ({
+    schema,
+    systemSchema: schema,
+    exists: true,
+    hasQsqjrn: true,
+    hasLibraryJournalInheritance: false,
+    transactionalWritesConfigured: true,
+    sqlSchemaJournalReady: true,
+    checkedAt: '2000-01-01T00:00:00.000Z',
+  }),
+};
+const connection = { chunks: [], sendData(data) { this.chunks.push(Buffer.from(data)); } };
+const logger = { debug() {}, info() {}, warn() {}, error() {} };
+const session = new ProxySession(
+  connection,
+  fakePool,
+  { user: 'proxyuser', database: 'BUILDTEST', applicationName: 'psycopg verifier' },
+  logger,
+);
+await session.initialize();
+executed.length = 0;
+await session.handleRaw(queryFrame('BEGIN'));
+await session.handleRaw(queryFrame('ROLLBACK'));
+await session.handleRaw(queryFrame('DEALLOCATE ALL'));
+assert.ok(executed.includes('ROLLBACK'), 'ROLLBACK must reach Db2');
+assert.ok(!executed.some((sql) => /DEALLOCATE/i.test(sql)), 'DEALLOCATE ALL must not reach Db2');
+await session.close();
+
+console.log('PostgreSQL prepared-statement cleanup / Db2 Boolean default compatibility check OK');
+
+function queryFrame(sql) {
+  const body = Buffer.concat([Buffer.from(sql, 'utf8'), Buffer.from([0])]);
+  const out = Buffer.allocUnsafe(5 + body.length);
+  out.write('Q', 0, 1, 'ascii');
+  out.writeInt32BE(4 + body.length, 1);
+  body.copy(out, 5);
+  return out;
+}
