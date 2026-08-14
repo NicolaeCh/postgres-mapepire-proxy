@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.32 - 2026-08-14
+
+- Translate PostgreSQL JSON/JSONB casts to the proxy's Db2 for i CLOB representation, including Alembic defaults such as `DEFAULT '[]'::jsonb` -> `DEFAULT CLOB('[]')`.
+- Bound PostgreSQL `::type` parsing so following SQL keywords are not greedily consumed as part of the type name.
+- Add a conservative simple-index compatibility layer for columns represented as Db2 LOB/XML/DATALINK types.
+- Default `SQL_UNSUPPORTED_NONUNIQUE_LOB_INDEX_POLICY=skip` acknowledges unsupported non-unique performance indexes with an explicit warning and no physical IBM i index; `error` provides strict mode.
+- Never skip UNIQUE indexes because they carry data-integrity semantics.
+- Add ContextForge JSONB tags DDL regression coverage and a mandatory LOB-index compatibility build verifier.
+
 ## 0.1.31 - 2026-08-14
 
 - Replace the invalid 0.1.30 direct `ALTER TABLE ... RENAME COLUMN` mapping after live IBM i SQL0199 proved that Db2 for i has no column-rename ALTER clause.

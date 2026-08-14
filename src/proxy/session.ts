@@ -50,6 +50,7 @@ import {
   type IbmiViewRow,
 } from '../sql/pgadmin-ibmi-view.js';
 import { parsePgReturning, reorderParameters, translateSql, type Translation } from '../sql/translator.js';
+import { decideLobIndexCompatibility, parsePgSimpleCreateIndex, type LobIndexColumnType } from '../sql/lob-index.js';
 import { DdlForeignKeyTypeRegistry } from '../sql/ddl-foreign-key.js';
 import { DdlTableDefinitionRegistry, parsePgAlterTableRenameColumn, type ColumnRenamePlan } from '../sql/column-rename.js';
 import { parsePgSavepointCommand, savepointCommandTag, translatePgSavepointToDb2 } from '../sql/transactions.js';
@@ -630,6 +631,64 @@ export class ProxySession {
       const error = sqlError('0A000', 'PostgreSQL system catalog/function is not implemented by the proxy compatibility layer');
       (error as Error & { proxySql?: string }).proxySql = sql;
       throw error;
+    }
+
+    const simpleIndex = parsePgSimpleCreateIndex(sql);
+    if (simpleIndex) {
+      const schemaName = simpleIndex.tableSchema ?? this.currentSchema;
+      const columnTypes: LobIndexColumnType[] = [];
+      const unresolved: string[] = [];
+      for (const column of simpleIndex.columns) {
+        const registeredType = this.ddlForeignKeyTypes.getColumnType(
+          `${schemaName}.${simpleIndex.tableName}`,
+          column,
+          schemaName,
+        );
+        if (registeredType) columnTypes.push({ column, type: registeredType });
+        else unresolved.push(column);
+      }
+      if (unresolved.length) {
+        const liveColumns = await this.fetchIbmiColumns(schemaName, simpleIndex.tableName);
+        for (const column of unresolved) {
+          const live = liveColumns.find((candidate) => sameSqlIdentifier(candidate.name, column));
+          if (live) columnTypes.push({ column, type: live.dataType });
+        }
+      }
+
+      const decision = decideLobIndexCompatibility(
+        simpleIndex,
+        columnTypes,
+        config.sql.unsupportedNonuniqueLobIndexPolicy,
+      );
+      if (decision.action === 'error') {
+        const error = sqlError('0A000',
+          `Db2 for i cannot create ${simpleIndex.unique ? 'a UNIQUE ' : ''}index ${simpleIndex.indexName} directly on LOB-backed column(s): ${decision.lobColumns.map((entry) => entry.column).join(', ')}`);
+        (error as Error & { detail?: string }).detail = simpleIndex.unique
+          ? 'The proxy will never skip a UNIQUE index because that would remove a PostgreSQL data-integrity constraint. Use an application-specific normalized/generated key if uniqueness is required.'
+          : 'Set SQL_UNSUPPORTED_NONUNIQUE_LOB_INDEX_POLICY=skip to acknowledge unsupported performance-only LOB indexes, or keep error mode for strict physical-index equivalence.';
+        throw error;
+      }
+
+      if (decision.action === 'skip') {
+        // Db2 for i forbids LOB/XML/DATALINK columns as index keys. PostgreSQL
+        // can index JSONB/TEXT values that this proxy represents as CLOB. A
+        // non-unique index changes access-path performance, not row validity,
+        // so compatibility mode may acknowledge it without inventing a lossy
+        // hash/truncation index. The warning is intentionally prominent.
+        this.logger.warn('Skipped PostgreSQL non-unique index unsupported by Db2 for i LOB key rules', {
+          database: this.client.database,
+          currentSchema: this.currentSchema,
+          index: simpleIndex.indexName,
+          tableSchema: schemaName,
+          table: simpleIndex.tableName,
+          columns: decision.lobColumns,
+          policy: config.sql.unsupportedNonuniqueLobIndexPolicy,
+          physicalIndexCreated: false,
+          semantics: 'PostgreSQL logical data semantics preserved; requested performance access path is not physically materialized on IBM i',
+        });
+        this.send(commandComplete('CREATE INDEX'));
+        return;
+      }
     }
 
     let translation: Translation;

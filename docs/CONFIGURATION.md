@@ -123,6 +123,8 @@ One `SQLJob` is leased to one PostgreSQL session for that session's lifetime. It
 | `SQL_ENABLE_PG_CATALOG_COMPAT` | `true` | Enable synthetic/translated PostgreSQL catalog compatibility. |
 | `SQL_ALLOW_MULTI_STATEMENT` | `false` | Allow multiple SQL statements in one Simple Query. Keep disabled unless specifically tested. |
 | `SQL_MAX_ROWS` | `0` | Global row cap; `0` means unlimited. |
+| `SQL_DDL_DEFAULT_VARCHAR_LENGTH` | `1024` | Db2 length used for PostgreSQL/SQLAlchemy lengthless `VARCHAR` DDL. |
+| `SQL_UNSUPPORTED_NONUNIQUE_LOB_INDEX_POLICY` | `skip` | `skip` acknowledges non-unique indexes that Db2 for i cannot create on LOB/XML/DATALINK keys and logs the missing physical access path; `error` enforces strict behavior. UNIQUE indexes are never skipped. |
 | `SQL_LOG_TEXT` | `false` | Log original/translated SQL. Enable cautiously because SQL can contain sensitive data. |
 | `SQL_LOG_FAILED_TEXT` | `false` | Include original SQL in backend-failure warning logs. Diagnostic use only; SQL literals may be sensitive. |
 

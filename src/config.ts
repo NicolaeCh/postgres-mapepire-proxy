@@ -40,6 +40,17 @@ function maybeFile(path: string | undefined): Buffer | undefined {
   return readFileSync(path.trim());
 }
 
+
+const lobIndexPolicies = ['skip', 'error'] as const;
+type LobIndexPolicy = (typeof lobIndexPolicies)[number];
+function lobIndexPolicy(): LobIndexPolicy {
+  const value = str('SQL_UNSUPPORTED_NONUNIQUE_LOB_INDEX_POLICY', 'skip') as LobIndexPolicy;
+  if (!lobIndexPolicies.includes(value)) {
+    throw new Error(`SQL_UNSUPPORTED_NONUNIQUE_LOB_INDEX_POLICY must be one of ${lobIndexPolicies.join(',')}`);
+  }
+  return value;
+}
+
 const authModes = ['none', 'cleartextPassword', 'md5Password'] as const;
 type AuthMode = (typeof authModes)[number];
 function authMode(): AuthMode {
@@ -146,6 +157,7 @@ export const config = {
     allowMultiStatement: bool('SQL_ALLOW_MULTI_STATEMENT', false),
     maxRows: num('SQL_MAX_ROWS', 0),
     ddlDefaultVarcharLength: num('SQL_DDL_DEFAULT_VARCHAR_LENGTH', 1024),
+    unsupportedNonuniqueLobIndexPolicy: lobIndexPolicy(),
     logText: bool('SQL_LOG_TEXT', false),
     logFailedText: bool('SQL_LOG_FAILED_TEXT', false),
   },

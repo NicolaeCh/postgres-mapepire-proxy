@@ -49,4 +49,19 @@ assert.match(resources, /BINARY_CONTENT BLOB\(2G\)/i);
 const altered = translateSql('ALTER TABLE gateways ADD COLUMN metadata JSONB', options).sql;
 assert.match(altered, /ADD COLUMN METADATA CLOB\(2G\) CCSID 1208/i);
 
-console.log('ContextForge PostgreSQL DDL -> Db2 for i compatibility check OK');
+// ContextForge revision cc7b95fec5d9 uses PostgreSQL JSONB plus a casted
+// server default. Db2 for i stores this as UTF-8 CLOB and only accepts the
+// matching CLOB cast-function form for a CLOB default.
+const tags = translateSql("ALTER TABLE tools ADD COLUMN tags JSONB DEFAULT '[]'::jsonb", options).sql;
+assert.equal(tags, "ALTER TABLE TOOLS ADD COLUMN TAGS CLOB(2G) CCSID 1208 DEFAULT CLOB('[]')");
+assert.doesNotMatch(tags, /\bJSONB?\b/i);
+
+const jsonParam = translateSql('INSERT INTO tools (tags) VALUES ($1::jsonb)', options);
+assert.equal(jsonParam.sql, 'INSERT INTO TOOLS (TAGS) VALUES (CLOB(?))');
+assert.deepEqual(jsonParam.parameterOrder, [1]);
+
+const jsonUpdate = translateSql("UPDATE tools SET tags='[]'::jsonb WHERE id=$1", options);
+assert.equal(jsonUpdate.sql, "UPDATE TOOLS SET TAGS=CLOB('[]') WHERE ID=?");
+assert.deepEqual(jsonUpdate.parameterOrder, [1]);
+
+console.log('ContextForge PostgreSQL DDL/JSONB -> Db2 for i compatibility check OK');

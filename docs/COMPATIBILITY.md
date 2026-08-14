@@ -110,3 +110,9 @@ SQLAlchemy PostgreSQL reflection for ordinary application objects is backed by I
 ## 0.1.31 PostgreSQL column rename emulation
 
 For a table whose exact translated CREATE TABLE definition is known, `ALTER TABLE t RENAME [COLUMN] old TO new` is emulated using `CREATE OR REPLACE TABLE ... ON REPLACE PRESERVE ROWS`. The new SQL name is paired with the existing IBM i `SYSTEM_COLUMN_NAME` using `FOR COLUMN`, so Db2 for i recognizes the existing physical column. If the proxy cannot prove the table definition/system column identity, it fails with `0A000` rather than using destructive copy/drop logic.
+
+## 0.1.32 PostgreSQL JSON/JSONB and LOB-backed indexes
+
+PostgreSQL `JSON`/`JSONB` storage is mapped to UTF-8 `CLOB(2G)`. Simple PostgreSQL casts are mapped to the same representation (`'[]'::jsonb` -> `CLOB('[]')`), including column defaults and parameterized DML.
+
+Db2 for i does not permit LOB/XML/DATALINK columns as direct index keys. For conservative plain-column, non-unique CREATE INDEX statements that target such columns, `SQL_UNSUPPORTED_NONUNIQUE_LOB_INDEX_POLICY=skip` (default) acknowledges the PostgreSQL performance hint and logs that no physical IBM i index was created. `error` selects strict behavior. UNIQUE indexes are always rejected rather than skipped because uniqueness changes data validity. Complex expression/partial/operator-class indexes are outside this fallback and continue to normal backend validation.

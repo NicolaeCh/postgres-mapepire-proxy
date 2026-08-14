@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.31 reference implementation**
+Version: **0.1.32 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.31 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.31.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.32.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 
@@ -160,3 +160,13 @@ See `docs/VALIDATION.md`. This build environment could not resolve npm packages 
 - `QSYS2.SYSCOLUMNS2.SYSTEM_COLUMN_NAME` is now captured in IBM i column metadata for compatibility operations.
 - Transaction-aware DDL registry rollback prevents stale uncommitted table definitions after failed migrations.
 - `docs/BUILD_FIX_0.1.31.md` compatibility note.
+
+
+## 0.1.32 additions
+
+- PostgreSQL JSON/JSONB casts/defaults are normalized to the Db2 for i UTF-8 CLOB representation, including Alembic `DEFAULT '[]'::jsonb` DDL.
+- PostgreSQL cast parsing is bounded so following SQL keywords are not consumed as part of a `::type` cast.
+- `src/sql/lob-index.ts` recognizes conservative simple CREATE INDEX forms and Db2 LOB-backed key types.
+- Non-unique indexes that Db2 for i cannot physically create on LOB/XML/DATALINK keys can be acknowledged with a prominent warning (`SQL_UNSUPPORTED_NONUNIQUE_LOB_INDEX_POLICY=skip`, default); `error` enables strict physical-index behavior. UNIQUE indexes are never skipped.
+- `scripts/verify-lob-index-compat.mjs` and strengthened ContextForge DDL verifier cover the JSONB tags migration shape.
+- `docs/BUILD_FIX_0.1.32.md` compatibility note.

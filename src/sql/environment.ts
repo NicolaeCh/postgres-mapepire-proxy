@@ -53,7 +53,7 @@ export function environmentQuery(
   // commonly asks unqualified version(). Both must return a non-NULL scalar
   // whose text contains a PostgreSQL major/minor version.
   if (/^select\s+(?:pg_catalog\.)?version\s*\(\s*\)$/i.test(compact)) {
-    return oneText('version', `PostgreSQL ${serverVersion} compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.31)`);
+    return oneText('version', `PostgreSQL ${serverVersion} compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.32)`);
   }
   if (/^select\s+current_database\(\)/i.test(compact)) return oneText('current_database', database || 'ibmi');
   if (/^select\s+current_schema(?:\(\))?(?:\s+as\s+([a-z_][a-z0-9_$]*))?$/i.test(compact)) {

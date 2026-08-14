@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.31 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.31
+podman build -t postgres-mapepire-proxy:0.1.32 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.32
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -197,3 +197,9 @@ ContextForge v1.0.7 serializes database bootstrap with PostgreSQL session adviso
 ## ContextForge foreign-key datatype compatibility (0.1.23)
 
 Alembic migrations can define an unbounded PostgreSQL `VARCHAR` foreign-key column that references a sized `VARCHAR(36)` primary key. The proxy now remembers translated parent-column types during the migration session and rewrites dependent foreign-key columns to the exact Db2 type required by the referenced key before executing the dependent `CREATE TABLE`.
+
+## PostgreSQL JSON/JSONB defaults and LOB index policy (0.1.32)
+
+PostgreSQL `JSON`/`JSONB` columns are represented on Db2 for i as UTF-8 `CLOB(2G)`. Release 0.1.32 also rewrites simple PostgreSQL JSON casts consistently, so DDL such as `JSONB DEFAULT '[]'::jsonb` becomes `CLOB(2G) CCSID 1208 DEFAULT CLOB('[]')` and parameter casts such as `$1::jsonb` become `CLOB(?)`.
+
+Db2 for i cannot use LOB/XML/DATALINK columns directly as index keys. For an ordinary **non-unique** PostgreSQL index on a LOB-backed column, the default `SQL_UNSUPPORTED_NONUNIQUE_LOB_INDEX_POLICY=skip` preserves logical row/integrity semantics by acknowledging the DDL and logging that no physical IBM i access path was created. Set the policy to `error` when strict physical-index equivalence is required. `UNIQUE` indexes are never skipped.

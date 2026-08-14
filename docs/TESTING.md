@@ -133,3 +133,7 @@ Live acceptance sequence: connect pgAdmin -> expand a live IBM i schema -> expan
 ## PostgreSQL column rename emulation regression (0.1.31)
 
 Run `node scripts/verify-postgres-alter-table.mjs` after `npm run build`.
+
+## PostgreSQL JSONB / Db2 LOB index compatibility regression (0.1.32)
+
+The image build runs `verify-contextforge-ddl.mjs` against the Alembic JSONB tags shape and `verify-lob-index-compat.mjs` against the simple non-unique/unique index policy. Verify at runtime that a non-unique index on a CLOB-backed column logs `Skipped PostgreSQL non-unique index unsupported by Db2 for i LOB key rules` with `physicalIndexCreated=false`; a UNIQUE LOB-backed index must return SQLSTATE `0A000`.

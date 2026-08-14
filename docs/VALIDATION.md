@@ -21,7 +21,7 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.31 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.32 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
@@ -143,3 +143,11 @@ The compiled reflection verifier exercises the PostgreSQL catalog query families
 ## 0.1.31 ALTER TABLE rename validation
 
 The container build runs `scripts/verify-postgres-alter-table.mjs`, which checks CREATE OR REPLACE/PRESERVE ROWS planning, stable IBM i system-column identity, transaction rollback of the DDL registry, quoted/schema-qualified parsing, and the following Boolean `ADD COLUMN` statement.
+
+## 0.1.32 JSON/JSONB and LOB-index validation
+
+- Exact Alembic DDL `ALTER TABLE tools ADD COLUMN tags JSONB DEFAULT '[]'::jsonb` translates to `ALTER TABLE TOOLS ADD COLUMN TAGS CLOB(2G) CCSID 1208 DEFAULT CLOB('[]')`.
+- `$1::jsonb` and literal JSON casts are normalized to `CLOB(...)` without consuming following SQL keywords.
+- Conservative simple CREATE INDEX parsing identifies the ContextForge `idx_tools_tags ON tools(tags)` shape.
+- The compatibility decision skips only non-unique LOB-backed indexes in `skip` mode; strict `error` mode rejects them; UNIQUE LOB-backed indexes are always rejected.
+- Complex expression/partial indexes are not classified by the fallback.

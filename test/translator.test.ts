@@ -171,6 +171,31 @@ describe('PostgreSQL DDL compatibility', () => {
   });
 
 
+  it('maps PostgreSQL JSON/JSONB casts and defaults to the Db2 CLOB representation', () => {
+    const altered = translateSql(
+      "alter table tools add column tags jsonb default '[]'::jsonb",
+      opts,
+    ).sql;
+    expect(altered).toBe(
+      "ALTER TABLE TOOLS ADD COLUMN TAGS CLOB(2G) CCSID 1208 DEFAULT CLOB('[]')",
+    );
+    expect(altered).not.toMatch(/\bJSONB?\b/i);
+
+    const inserted = translateSql(
+      'insert into tools (tags) values ($1::jsonb)',
+      opts,
+    );
+    expect(inserted.sql).toBe('INSERT INTO TOOLS (TAGS) VALUES (CLOB(?))');
+    expect(inserted.parameterOrder).toEqual([1]);
+
+    const updated = translateSql(
+      "update tools set tags='[]'::jsonb where id=$1",
+      opts,
+    );
+    expect(updated.sql).toBe("UPDATE TOOLS SET TAGS=CLOB('[]') WHERE ID=?");
+    expect(updated.parameterOrder).toEqual([1]);
+  });
+
   it('normalizes quoted PostgreSQL numeric defaults only on numeric columns', () => {
     const sql = translateSql(
       `create table numeric_defaults (

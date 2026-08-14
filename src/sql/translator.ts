@@ -42,6 +42,7 @@ export function translateSql(input: string, options: TranslateOptions): Translat
   });
 
   sql = rewritePgCasts(sql);
+  sql = rewritePgJsonCasts(sql);
   sql = rewritePgSerialTypes(sql);
   sql = rewritePgDdlTypes(sql, options.ddlDefaultVarcharLength ?? 1024);
   sql = rewritePgReturning(sql, originalKind);
@@ -71,10 +72,30 @@ export function reorderParameters(values: unknown[], order: number[]): unknown[]
 }
 
 function rewritePgCasts(sql: string): string {
-  // Conservative common-case conversion. Complex expressions should use CAST explicitly.
+  // Conservative common-case conversion. Keep the type grammar bounded to
+  // actual PostgreSQL type spellings: the former `[A-Za-z0-9_ ]*` tail could
+  // greedily consume following SQL keywords (for example `::jsonb WHERE id`).
+  // Known multi-word built-ins are accepted explicitly.
   return sql.replace(
-    /((?:'[^']*(?:''[^']*)*'|\$\d+|\?|[A-Za-z_][A-Za-z0-9_.]*|\d+(?:\.\d+)?))::([A-Za-z_][A-Za-z0-9_ ]*(?:\([^)]*\))?)/g,
+    /((?:'[^']*(?:''[^']*)*'|\$\d+|\?|[A-Za-z_][A-Za-z0-9_.]*|[+-]?\d+(?:\.\d+)?))::([A-Za-z_][A-Za-z0-9_]*(?:(?:\s+(?:WITH|WITHOUT)\s+TIME\s+ZONE)|(?:\s+(?:VARYING|PRECISION)))?(?:\([^)]*\))?(?:\[\])?)/gi,
     'CAST($1 AS $2)',
+  );
+}
+
+/**
+ * Db2 for i has SQL/JSON functions but no PostgreSQL JSON/JSONB storage type.
+ * The proxy stores JSON/JSONB columns as UTF-8 CLOB, so casts to PostgreSQL's
+ * JSON types must become the matching Db2 CLOB cast function as well.
+ *
+ * This is intentionally limited to the same simple operands accepted by the
+ * PostgreSQL :: cast normalizer above. It covers SQLAlchemy/Alembic defaults
+ * such as DEFAULT '[]'::jsonb and normal parameter casts such as ?::jsonb
+ * without attempting to emulate PostgreSQL JSONB operators or binary layout.
+ */
+function rewritePgJsonCasts(sql: string): string {
+  return sql.replace(
+    /\bCAST\(\s*('(?:[^']|'')*'|\?|NULL|TRUE|FALSE|[A-Za-z_][A-Za-z0-9_.]*|[+-]?\d+(?:\.\d+)?)\s+AS\s+JSONB?\s*\)/gi,
+    (_match: string, value: string) => `CLOB(${value})`,
   );
 }
 
