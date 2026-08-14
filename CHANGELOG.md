@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.30 - 2026-08-14
+
+- Translate PostgreSQL `ALTER TABLE ... RENAME [COLUMN] old TO new` column renames to Db2 for i `ALTER TABLE ... RENAME COLUMN old TO new`.
+- Preserve quoted/schema-qualified identifiers and keep the rewrite scoped to column renames so table/constraint rename grammar is not guessed.
+- Add a build regression for SQLAlchemy/Alembic column rename plus the following Boolean `ADD COLUMN` statement used by ORM migrations.
+- Keep PostgreSQL failed-transaction and advisory-lock semantics unchanged; successful DDL prevents the downstream `25P02`/unlock warning rather than bypassing transaction state.
+
 ## 0.1.29 - 2026-08-14
 
 - Add live SQLAlchemy/Alembic PostgreSQL reflection backed by IBM i QSYS2 catalogs before the generic pg_catalog firewall.

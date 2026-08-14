@@ -42,6 +42,7 @@ export function translateSql(input: string, options: TranslateOptions): Translat
   });
 
   sql = rewritePgCasts(sql);
+  sql = rewritePgAlterTableRenameColumn(sql);
   sql = rewritePgSerialTypes(sql);
   sql = rewritePgDdlTypes(sql, options.ddlDefaultVarcharLength ?? 1024);
   sql = rewritePgReturning(sql, originalKind);
@@ -76,6 +77,30 @@ function rewritePgCasts(sql: string): string {
     /((?:'[^']*(?:''[^']*)*'|\$\d+|\?|[A-Za-z_][A-Za-z0-9_.]*|\d+(?:\.\d+)?))::([A-Za-z_][A-Za-z0-9_ ]*(?:\([^)]*\))?)/g,
     'CAST($1 AS $2)',
   );
+}
+
+/**
+ * Normalize PostgreSQL ALTER TABLE column-rename syntax for Db2 for i.
+ *
+ * PostgreSQL permits the COLUMN keyword to be omitted:
+ *   ALTER TABLE tools RENAME is_active TO enabled
+ *
+ * Db2 for i requires the explicit RENAME COLUMN clause:
+ *   ALTER TABLE tools RENAME COLUMN is_active TO enabled
+ *
+ * Keep the rewrite deliberately scoped to column renames. Table/constraint
+ * renames have different Db2 grammar and must not be guessed here.
+ */
+function rewritePgAlterTableRenameColumn(sql: string): string {
+  const ident = String.raw`(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$#@]*)`;
+  const relation = String.raw`(?:${ident}\s*\.\s*)?${ident}`;
+  const pattern = new RegExp(
+    String.raw`^(\s*ALTER\s+TABLE\s+${relation}\s+)RENAME\s+(?:COLUMN\s+)?(${ident})\s+TO\s+(${ident})(\s*)$`,
+    'i',
+  );
+  const match = sql.match(pattern);
+  if (!match) return sql;
+  return `${match[1]}RENAME COLUMN ${match[2]} TO ${match[3]}${match[4]}`;
 }
 
 function rewritePgSerialTypes(sql: string): string {

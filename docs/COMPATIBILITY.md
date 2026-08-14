@@ -102,3 +102,7 @@ PostgreSQL `INSERT ... RETURNING <simple columns>` is translated to `SELECT <col
 ## 0.1.29 SQLAlchemy/Alembic live reflection
 
 SQLAlchemy PostgreSQL reflection for ordinary application objects is backed by IBM i catalogs instead of an empty generic pg_catalog fallback. Supported Inspector families include table names/has-table, columns, indexes, foreign keys, primary keys and unique constraints. Relation OIDs are deterministic synthetic PostgreSQL OIDs. PostgreSQL system catalogs are still not fully emulated; unsupported PostgreSQL-specific metadata families remain synthetic/empty rather than being forwarded to Db2 for i.
+
+## 0.1.30 PostgreSQL ALTER TABLE column rename
+
+PostgreSQL allows `ALTER TABLE t RENAME old TO new` because `COLUMN` is optional. Db2 for i requires `ALTER TABLE t RENAME COLUMN old TO new`. The proxy now performs this narrow normalization while preserving quoted identifiers. ORM-generated `ADD COLUMN ... BOOLEAN DEFAULT true` continues through the type/default normalizer.

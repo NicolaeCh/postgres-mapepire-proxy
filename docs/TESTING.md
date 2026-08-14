@@ -129,3 +129,7 @@ Live acceptance sequence: connect pgAdmin -> expand a live IBM i schema -> expan
 ## SQLAlchemy reflection regression (0.1.29)
 
 `scripts/verify-sqlalchemy-reflection.mjs` is executed after compilation during every container build. It creates a fake live IBM i catalog and verifies SQLAlchemy-style table discovery, `has_table`, column metadata, deterministic relation OIDs, existing-index reflection, foreign keys, and primary-key reflection. This guards against the generic pg_catalog firewall silently turning existing IBM i objects into “not found” results for ORM migration tools.
+
+## PostgreSQL ALTER TABLE rename regression (0.1.30)
+
+Run `node scripts/verify-postgres-alter-table.mjs` after `npm run build`.

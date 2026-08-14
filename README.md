@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.29 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.29
+podman build -t postgres-mapepire-proxy:0.1.30 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.30
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -115,6 +115,10 @@ Release 0.1.17 fixes the pgAdmin 9.16+ Columns node contract and extends IBM i i
 
 The **Views** collection is now backed by live IBM i catalogs. SQL views are discovered with `QSYS2.SYSTABLES` where `TABLE_TYPE='V'` and enriched from `QSYS2.SYSVIEWS`, including the view definition. Views receive stable virtual PostgreSQL OIDs, so their **Columns** collection is resolved through the same `QSYS2.SYSCOLUMNS2` path as table columns. A pgAdmin refresh therefore exposes views created directly on IBM i with `CREATE VIEW`.
 
+
+## PostgreSQL ALTER TABLE column rename compatibility (0.1.30)
+
+PostgreSQL permits the optional `COLUMN` keyword in `ALTER TABLE ... RENAME [COLUMN] old TO new`, while Db2 for i requires `RENAME COLUMN`. Release 0.1.30 normalizes this syntax before execution and keeps PostgreSQL transaction semantics unchanged. The same regression also verifies `ALTER TABLE ... ADD COLUMN ... BOOLEAN DEFAULT true` remains translated to the Db2-safe Boolean constant `TRUE`.
 
 ## SQLAlchemy / Alembic live reflection (0.1.29)
 

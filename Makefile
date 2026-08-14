@@ -8,4 +8,4 @@ test:
 run:
 	npm run dev
 container:
-	podman build -f Containerfile -t postgres-mapepire-proxy:0.1.29 .
+	podman build -f Containerfile -t postgres-mapepire-proxy:0.1.30 .

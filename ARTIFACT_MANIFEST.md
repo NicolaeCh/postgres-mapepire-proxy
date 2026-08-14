@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.29 reference implementation**
+Version: **0.1.30 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.29 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.29.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.30.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 
@@ -147,3 +147,9 @@ See `docs/VALIDATION.md`. This build environment could not resolve npm packages 
 - Index catalog data includes key columns/filter metadata for ORM reflection.
 - `scripts/verify-sqlalchemy-reflection.mjs` is a mandatory image-build compatibility gate.
 - `docs/BUILD_FIX_0.1.29.md` documents the false-negative reflection failure and partially migrated schema recovery.
+
+## 0.1.30 additions
+
+- PostgreSQL `ALTER TABLE ... RENAME [COLUMN]` to Db2 for i `RENAME COLUMN` translation.
+- `scripts/verify-postgres-alter-table.mjs` build regression.
+- `docs/BUILD_FIX_0.1.30.md` compatibility note.
