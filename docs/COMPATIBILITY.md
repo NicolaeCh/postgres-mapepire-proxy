@@ -103,6 +103,10 @@ PostgreSQL `INSERT ... RETURNING <simple columns>` is translated to `SELECT <col
 
 SQLAlchemy PostgreSQL reflection for ordinary application objects is backed by IBM i catalogs instead of an empty generic pg_catalog fallback. Supported Inspector families include table names/has-table, columns, indexes, foreign keys, primary keys and unique constraints. Relation OIDs are deterministic synthetic PostgreSQL OIDs. PostgreSQL system catalogs are still not fully emulated; unsupported PostgreSQL-specific metadata families remain synthetic/empty rather than being forwarded to Db2 for i.
 
-## 0.1.30 PostgreSQL ALTER TABLE column rename
+## 0.1.30 PostgreSQL ALTER TABLE column rename (superseded)
 
-PostgreSQL allows `ALTER TABLE t RENAME old TO new` because `COLUMN` is optional. Db2 for i requires `ALTER TABLE t RENAME COLUMN old TO new`. The proxy now performs this narrow normalization while preserving quoted identifiers. ORM-generated `ADD COLUMN ... BOOLEAN DEFAULT true` continues through the type/default normalizer.
+0.1.30 normalized PostgreSQL's omitted `COLUMN` keyword to `RENAME COLUMN`. Live IBM i validation showed that Db2 for i does not support column rename in `ALTER TABLE`; 0.1.31 supersedes this direct translation with guarded CREATE OR REPLACE/PRESERVE ROWS emulation.
+
+## 0.1.31 PostgreSQL column rename emulation
+
+For a table whose exact translated CREATE TABLE definition is known, `ALTER TABLE t RENAME [COLUMN] old TO new` is emulated using `CREATE OR REPLACE TABLE ... ON REPLACE PRESERVE ROWS`. The new SQL name is paired with the existing IBM i `SYSTEM_COLUMN_NAME` using `FOR COLUMN`, so Db2 for i recognizes the existing physical column. If the proxy cannot prove the table definition/system column identity, it fails with `0A000` rather than using destructive copy/drop logic.

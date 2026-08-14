@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.30 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.30
+podman build -t postgres-mapepire-proxy:0.1.31 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.31
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -116,9 +116,11 @@ Release 0.1.17 fixes the pgAdmin 9.16+ Columns node contract and extends IBM i i
 The **Views** collection is now backed by live IBM i catalogs. SQL views are discovered with `QSYS2.SYSTABLES` where `TABLE_TYPE='V'` and enriched from `QSYS2.SYSVIEWS`, including the view definition. Views receive stable virtual PostgreSQL OIDs, so their **Columns** collection is resolved through the same `QSYS2.SYSCOLUMNS2` path as table columns. A pgAdmin refresh therefore exposes views created directly on IBM i with `CREATE VIEW`.
 
 
-## PostgreSQL ALTER TABLE column rename compatibility (0.1.30)
+## PostgreSQL column rename compatibility (0.1.31)
 
-PostgreSQL permits the optional `COLUMN` keyword in `ALTER TABLE ... RENAME [COLUMN] old TO new`, while Db2 for i requires `RENAME COLUMN`. Release 0.1.30 normalizes this syntax before execution and keeps PostgreSQL transaction semantics unchanged. The same regression also verifies `ALTER TABLE ... ADD COLUMN ... BOOLEAN DEFAULT true` remains translated to the Db2-safe Boolean constant `TRUE`.
+Db2 for i does not implement PostgreSQL `ALTER TABLE ... RENAME [COLUMN] old TO new`. Release 0.1.31 intercepts this PostgreSQL DDL and, when the proxy has the exact translated table definition, emulates the SQL-name change with IBM i `CREATE OR REPLACE TABLE ... ON REPLACE PRESERVE ROWS`. The renamed column is emitted as `new_name FOR COLUMN old_system_name ...`, which keeps the IBM i system column identity stable while exposing the new SQL name.
+
+The emulation is deliberately conservative: if the exact table definition or IBM i system column name is unavailable, the proxy returns SQLSTATE `0A000` instead of attempting an add/copy/drop sequence that could lose constraints, generated attributes, or dependencies. Transaction rollback also restores the proxy's pre-transaction DDL registry.
 
 ## SQLAlchemy / Alembic live reflection (0.1.29)
 

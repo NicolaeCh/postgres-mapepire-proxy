@@ -1,8 +1,17 @@
 # Changelog
 
+## 0.1.31 - 2026-08-14
+
+- Replace the invalid 0.1.30 direct `ALTER TABLE ... RENAME COLUMN` mapping after live IBM i SQL0199 proved that Db2 for i has no column-rename ALTER clause.
+- Emulate PostgreSQL column rename with IBM i `CREATE OR REPLACE TABLE ... ON REPLACE PRESERVE ROWS` when the proxy has the exact translated table definition.
+- Preserve the existing IBM i physical/system column identity using `new_sql_name FOR COLUMN old_system_name`, allowing the SQL-visible name to change without an add/copy/drop data migration.
+- Read `SYSTEM_COLUMN_NAME` from `QSYS2.SYSCOLUMNS2` and refuse unsafe rename emulation with SQLSTATE `0A000` when exact metadata is unavailable.
+- Track CREATE TABLE and ALTER TABLE ADD COLUMN definitions in a transaction-aware DDL registry; PostgreSQL rollback restores both table-definition and foreign-key type registries.
+- Replace the 0.1.30 rename build regression with a CREATE OR REPLACE/PRESERVE ROWS contract test using the ContextForge `is_active` -> `enabled` migration shape.
+
 ## 0.1.30 - 2026-08-14
 
-- Translate PostgreSQL `ALTER TABLE ... RENAME [COLUMN] old TO new` column renames to Db2 for i `ALTER TABLE ... RENAME COLUMN old TO new`.
+- Attempted to normalize PostgreSQL `ALTER TABLE ... RENAME [COLUMN] old TO new` to `RENAME COLUMN`; live IBM i validation later showed this syntax is unsupported and 0.1.31 supersedes it with CREATE OR REPLACE emulation.
 - Preserve quoted/schema-qualified identifiers and keep the rewrite scoped to column renames so table/constraint rename grammar is not guessed.
 - Add a build regression for SQLAlchemy/Alembic column rename plus the following Boolean `ADD COLUMN` statement used by ORM migrations.
 - Keep PostgreSQL failed-transaction and advisory-lock semantics unchanged; successful DDL prevents the downstream `25P02`/unlock warning rather than bypassing transaction state.

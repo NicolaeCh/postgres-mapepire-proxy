@@ -43,7 +43,8 @@ interface ParsedCreateTable {
  * dependent CREATE TABLE valid without hard-coding application table names.
  */
 export class DdlForeignKeyTypeRegistry {
-  private readonly types = new Map<string, string>();
+  private types = new Map<string, string>();
+  private transactionSnapshot?: Map<string, string>;
 
   alignCreateTable(sql: string, currentSchema: string): { sql: string; alignments: ForeignKeyAlignment[] } {
     const parsed = parseCreateTable(sql, currentSchema);
@@ -100,8 +101,45 @@ export class DdlForeignKeyTypeRegistry {
     return this.types.get(typeKey(table.schema, table.table, columnName));
   }
 
+  renameColumn(tableName: string, oldColumn: string, newColumn: string, currentSchema: string): void {
+    const table = splitQualifiedName(tableName, currentSchema);
+    const oldKey = typeKey(table.schema, table.table, oldColumn);
+    const type = this.types.get(oldKey);
+    if (!type) return;
+    this.types.delete(oldKey);
+    this.types.set(typeKey(table.schema, table.table, newColumn), type);
+  }
+
+  registerAlterAddColumn(sql: string, currentSchema: string): void {
+    const ident = String.raw`(?:(?:"(?:[^"]|"")*")|(?:[A-Za-z_][A-Za-z0-9_$#@]*))`;
+    const relation = String.raw`((?:${ident})(?:\s*\.\s*(?:${ident}))?)`;
+    const match = new RegExp(
+      String.raw`^\s*ALTER\s+TABLE\s+${relation}\s+ADD\s+(?:COLUMN\s+)?(${ident})\s+([\s\S]+)$`,
+      'i',
+    ).exec(sql);
+    if (!match) return;
+    const table = splitQualifiedName(match[1]!, currentSchema);
+    const type = extractTypePrefix(match[3]!);
+    if (!type) return;
+    this.types.set(typeKey(table.schema, table.table, match[2]!), type);
+  }
+
+  beginTransaction(): void {
+    if (this.transactionSnapshot) return;
+    this.transactionSnapshot = new Map(this.types);
+  }
+
+  commitTransaction(): void { this.transactionSnapshot = undefined; }
+
+  rollbackTransaction(): void {
+    if (!this.transactionSnapshot) return;
+    this.types = this.transactionSnapshot;
+    this.transactionSnapshot = undefined;
+  }
+
   clear(): void {
     this.types.clear();
+    this.transactionSnapshot = undefined;
   }
 }
 

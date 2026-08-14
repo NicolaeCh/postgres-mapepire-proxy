@@ -51,6 +51,7 @@ import {
 } from '../sql/pgadmin-ibmi-view.js';
 import { parsePgReturning, reorderParameters, translateSql, type Translation } from '../sql/translator.js';
 import { DdlForeignKeyTypeRegistry } from '../sql/ddl-foreign-key.js';
+import { DdlTableDefinitionRegistry, parsePgAlterTableRenameColumn, type ColumnRenamePlan } from '../sql/column-rename.js';
 import { parsePgSavepointCommand, savepointCommandTag, translatePgSavepointToDb2 } from '../sql/transactions.js';
 import { parsePgDeallocate } from '../sql/prepared-control.js';
 import {
@@ -113,6 +114,7 @@ export class ProxySession {
   private localSchemaRestore?: { schema: string; source: SchemaSource; capabilities?: IbmiSchemaCapabilities };
   private schemaCache?: { expiresAt: number; rows: IbmiSchemaRow[] };
   private readonly ddlForeignKeyTypes = new DdlForeignKeyTypeRegistry();
+  private readonly ddlTableDefinitions = new DdlTableDefinitionRegistry();
   // Keep the TCP accumulation buffer typed as Uint8Array. Node 24's Buffer
   // definitions parameterize the backing ArrayBuffer type, and mixing buffers
   // returned by concat/subarray can otherwise produce Buffer<ArrayBuffer> vs
@@ -520,6 +522,8 @@ export class ProxySession {
     if (rawKind === 'begin') {
       this.inTransaction = true;
       this.transactionFailed = false;
+      this.ddlForeignKeyTypes.beginTransaction();
+      this.ddlTableDefinitions.beginTransaction();
       this.send(commandComplete('BEGIN'));
       return;
     }
@@ -527,11 +531,15 @@ export class ProxySession {
       if (this.transactionFailed) {
         await this.currentJob().execute('ROLLBACK');
         this.inTransaction = false; this.transactionFailed = false;
+        this.ddlForeignKeyTypes.rollbackTransaction();
+        this.ddlTableDefinitions.rollbackTransaction();
         await this.restoreLocalSearchPath();
         this.send(commandComplete('ROLLBACK'));
       } else {
         await this.currentJob().execute('COMMIT');
         this.inTransaction = false;
+        this.ddlForeignKeyTypes.commitTransaction();
+        this.ddlTableDefinitions.commitTransaction();
         await this.restoreLocalSearchPath();
         this.send(commandComplete('COMMIT'));
       }
@@ -540,6 +548,8 @@ export class ProxySession {
     if (rawKind === 'rollback') {
       await this.currentJob().execute('ROLLBACK');
       this.inTransaction = false; this.transactionFailed = false;
+      this.ddlForeignKeyTypes.rollbackTransaction();
+      this.ddlTableDefinitions.rollbackTransaction();
       await this.restoreLocalSearchPath();
       this.send(commandComplete('ROLLBACK'));
       return;
@@ -623,15 +633,40 @@ export class ProxySession {
     }
 
     let translation: Translation;
+    let columnRenamePlan: ColumnRenamePlan | undefined;
     try {
-      translation = translateSql(sql, config.sql);
-      const aligned = this.ddlForeignKeyTypes.alignCreateTable(translation.sql, this.currentSchema);
-      if (aligned.alignments.length > 0) {
-        translation.sql = aligned.sql;
-        this.logger.info('Aligned Db2 foreign-key column types with referenced parent keys', {
-          database: this.client.database,
-          alignments: aligned.alignments,
-        });
+      const rename = parsePgAlterTableRenameColumn(sql, this.currentSchema);
+      if (rename) {
+        const columns = await this.fetchIbmiColumns(rename.schema, rename.table);
+        const oldColumn = columns.find((column) => sameSqlIdentifier(column.name, rename.oldColumn));
+        if (!oldColumn) {
+          throw sqlError('42703', `Column ${rename.oldColumn} does not exist on table ${rename.table}`);
+        }
+        const systemColumnName = oldColumn.systemName
+          ?? (/^[A-Z_$#@][A-Z0-9_$#@]{0,9}$/i.test(rename.oldColumn) ? rename.oldColumn.toUpperCase() : undefined);
+        if (!systemColumnName) {
+          throw sqlError('0A000',
+            `Cannot safely emulate PostgreSQL column rename for ${rename.schema}.${rename.table}.${rename.oldColumn}: IBM i system column name is unavailable`);
+        }
+        columnRenamePlan = this.ddlTableDefinitions.planRename(rename, systemColumnName);
+        if (!columnRenamePlan) {
+          const error = sqlError('0A000',
+            `Cannot safely emulate PostgreSQL ALTER TABLE RENAME COLUMN for ${rename.schema}.${rename.table}: exact CREATE TABLE definition is not available in this proxy session`);
+          (error as Error & { detail?: string }).detail =
+            'Db2 for i has no ALTER TABLE RENAME COLUMN syntax. The proxy only uses CREATE OR REPLACE TABLE ... ON REPLACE PRESERVE ROWS when it has the exact translated table definition; it will not use a destructive add/copy/drop fallback.';
+          throw error;
+        }
+        translation = { original: sql, sql: columnRenamePlan.db2Sql, kind: rawKind, parameterOrder: [] };
+      } else {
+        translation = translateSql(sql, config.sql);
+        const aligned = this.ddlForeignKeyTypes.alignCreateTable(translation.sql, this.currentSchema);
+        if (aligned.alignments.length > 0) {
+          translation.sql = aligned.sql;
+          this.logger.info('Aligned Db2 foreign-key column types with referenced parent keys', {
+            database: this.client.database,
+            alignments: aligned.alignments,
+          });
+        }
       }
       if (config.sql.logText) this.logger.info('Translated SQL', { original: sql, db2: translation.sql });
     } catch (error) {
@@ -642,7 +677,28 @@ export class ProxySession {
     let result: QueryResult<Record<string, unknown>>;
     try {
       result = await this.executeWithSafeRetry(translation, values, maxRows);
-      this.ddlForeignKeyTypes.registerCreateTable(translation.sql, this.currentSchema);
+      if (columnRenamePlan) {
+        this.ddlTableDefinitions.commitRename(columnRenamePlan);
+        this.ddlForeignKeyTypes.renameColumn(
+          `${columnRenamePlan.request.schema}.${columnRenamePlan.request.table}`,
+          columnRenamePlan.request.oldColumn,
+          columnRenamePlan.request.newColumn,
+          this.currentSchema,
+        );
+        this.logger.info('PostgreSQL column rename emulated with IBM i CREATE OR REPLACE TABLE', {
+          database: this.client.database,
+          schema: columnRenamePlan.request.schema,
+          table: columnRenamePlan.request.table,
+          oldColumn: columnRenamePlan.request.oldColumn,
+          newColumn: columnRenamePlan.request.newColumn,
+          preservedSystemColumnName: columnRenamePlan.systemColumnName,
+        });
+      } else {
+        this.ddlForeignKeyTypes.registerCreateTable(translation.sql, this.currentSchema);
+        this.ddlForeignKeyTypes.registerAlterAddColumn(translation.sql, this.currentSchema);
+        this.ddlTableDefinitions.registerCreateTable(translation.sql, this.currentSchema);
+        this.ddlTableDefinitions.registerAlterAddColumn(translation.sql, this.currentSchema);
+      }
 
       // PostgreSQL autocommit semantics require the backend transaction to be
       // durable before CommandComplete is reported to the client. Mapepire JDBC
@@ -1221,6 +1277,7 @@ export class ProxySession {
       schema: String(caseInsensitiveValue(row, 'TABLE_SCHEMA') ?? '').trim(),
       table: String(caseInsensitiveValue(row, 'TABLE_NAME') ?? '').trim(),
       name: String(caseInsensitiveValue(row, 'COLUMN_NAME') ?? '').trim(),
+      systemName: nullableString(caseInsensitiveValue(row, 'SYSTEM_COLUMN_NAME')),
       ordinal: Number(caseInsensitiveValue(row, 'ORDINAL_POSITION') ?? 0),
       dataType: String(caseInsensitiveValue(row, 'DATA_TYPE') ?? '').trim(),
       length: nullableNumber(caseInsensitiveValue(row, 'LENGTH')),

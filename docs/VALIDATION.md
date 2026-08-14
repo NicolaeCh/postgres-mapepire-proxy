@@ -21,7 +21,7 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.30 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.31 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
@@ -136,10 +136,10 @@ The table-child contract tests include a normal pgAdmin Tables node request cont
 The compiled SQLAlchemy compatibility verifier now covers psycopg 3.3.4 nested transaction commands (`SAVEPOINT`, `RELEASE`, `ROLLBACK TO`) and the exact Db2 for i SQL emitted for each command. It also verifies that psycopg's `TypeInfo.fetch()` query for the optional `hstore` extension receives a five-column empty rowset (`name`, `oid`, `array_oid`, `regtype`, `delimiter`) instead of the generic synthetic `pg_type` enumeration. Live IBM i acceptance must still execute a savepoint sequence through Mapepire to validate the backend commitment-control environment.
 
 
-## 0.1.30 SQLAlchemy/Alembic reflection validation
+## 0.1.31 SQLAlchemy/Alembic reflection validation
 
 The compiled reflection verifier exercises the PostgreSQL catalog query families used by SQLAlchemy 2.x Inspector against a fake IBM i QSYS2 catalog. It validates table names/has-table, columns, relation OIDs, indexes and key columns, foreign keys, and primary-key metadata. Full dependency-resolved build and live IBM i execution remain deployment-host acceptance tests.
 
-## 0.1.30 ALTER TABLE rename validation
+## 0.1.31 ALTER TABLE rename validation
 
-The container build runs `scripts/verify-postgres-alter-table.mjs`, which checks PostgreSQL omitted/explicit `COLUMN`, quoted schema-qualified identifiers, and the following Boolean `ADD COLUMN` statement.
+The container build runs `scripts/verify-postgres-alter-table.mjs`, which checks CREATE OR REPLACE/PRESERVE ROWS planning, stable IBM i system-column identity, transaction rollback of the DDL registry, quoted/schema-qualified parsing, and the following Boolean `ADD COLUMN` statement.

@@ -6,6 +6,7 @@ export interface IbmiColumnRow {
   schema: string;
   table: string;
   name: string;
+  systemName?: string | null;
   ordinal: number;
   dataType: string;
   length: number | null;
@@ -37,7 +38,7 @@ export interface IbmiIndexRow {
   filterDefinition: string | null;
 }
 
-export const IBMI_COLUMN_CATALOG_SQL = `SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION,
+export const IBMI_COLUMN_CATALOG_SQL = `SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, SYSTEM_COLUMN_NAME, ORDINAL_POSITION,
        DATA_TYPE, LENGTH, NUMERIC_SCALE, NUMERIC_PRECISION, IS_NULLABLE,
        LONG_COMMENT, COLUMN_TEXT, HAS_DEFAULT, COLUMN_DEFAULT,
        CHARACTER_MAXIMUM_LENGTH, DATETIME_PRECISION, IS_IDENTITY,
