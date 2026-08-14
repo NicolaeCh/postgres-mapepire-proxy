@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.37 - 2026-08-14
+
+- Fix live `SQ20483 / SQLSTATE 4274K` from `QSYS2.GENERATE_SQL` when an IBM i release/PTF level does not expose newer optional named arguments such as `ACTIVATE_ACCESS_CONTROL_OPTION`.
+- Reduce the GENERATE_SQL call to IBM's portable documented core: `CONSTRAINT_OPTION => '2'` plus `CREATE_OR_REPLACE_OPTION => '1'`.
+- Add bounded IBM i object-stabilization retries for `SQL0443 ... FILE NOT FOUND YET` and for `SQL0204` where a long SQL table name resolves to a temporarily unavailable generated system *FILE (live example `EMAIL_TEAMS` -> `EMAIL00003`).
+- Apply the same stabilization retry to SQLAlchemy column/index/foreign-key/key-constraint catalog reads.
+- Do not retry a genuine SQL0204 where the missing *FILE is the actual SQL target, and do not hide unrelated SQL0601/42710 duplicate-index errors.
+- Add a mandatory build verifier for the two live transient object signatures and strengthen the PostgreSQL ALTER verifier to reject the unsupported GENERATE_SQL named options.
+
 ## 0.1.36 - 2026-08-14
 
 - Fix ContextForge/SQLAlchemy repeatedly recreating an IBM i SQL index that already exists when `SYSTABLEINDEXSTAT.COLUMN_NAMES` is NULL.

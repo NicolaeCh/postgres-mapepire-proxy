@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 
 const { translateSql } = await import('../dist/src/sql/translator.js');
-const { buildCreateOrReplaceAddColumn, DdlTableDefinitionRegistry, isAlterTableAddNotNullNoDefault, planAlterTableAddNotNullNoDefault, parsePgAlterTableRenameColumn, parsePgAlterTableRenameTable } = await import('../dist/src/sql/column-rename.js');
+const { buildCreateOrReplaceAddColumn, buildPortableGenerateSqlCall, DdlTableDefinitionRegistry, isAlterTableAddNotNullNoDefault, planAlterTableAddNotNullNoDefault, parsePgAlterTableRenameColumn, parsePgAlterTableRenameTable } = await import('../dist/src/sql/column-rename.js');
 const { DdlForeignKeyTypeRegistry } = await import('../dist/src/sql/ddl-foreign-key.js');
 
 const options = {
@@ -124,6 +124,9 @@ assert.equal(isAlterTableAddNotNullNoDefault(addEmail, 'MCPDATA'), true);
 const addEmailPlan = planAlterTableAddNotNullNoDefault(addEmail, 'MCPDATA');
 assert.ok(addEmailPlan);
 assert.equal(addEmailPlan.probeSql, 'SELECT 1 AS PROXY_ROW FROM "MCPDATA"."OAUTH_TOKENS" FETCH FIRST 1 ROW ONLY');
+const generateSqlCall = buildPortableGenerateSqlCall(addEmailPlan);
+assert.equal(generateSqlCall, "CALL QSYS2.GENERATE_SQL('OAUTH_TOKENS', 'MCPDATA', 'TABLE', CONSTRAINT_OPTION => '2', CREATE_OR_REPLACE_OPTION => '1')");
+assert.doesNotMatch(generateSqlCall, /ACTIVATE_ACCESS_CONTROL_OPTION|MASK_AND_PERMISSION_OPTION|QUALIFIED_NAME_OPTION|TEMPORAL_OPTION/);
 const generatedOauth = 'CREATE OR REPLACE TABLE "MCPDATA"."OAUTH_TOKENS" (ID VARCHAR(36) NOT NULL, CONSTRAINT PK_OAUTH PRIMARY KEY (ID)) RCDFMT OAUTHTOK';
 const oauthReplacement = buildCreateOrReplaceAddColumn(generatedOauth, addEmailPlan, 'MCPDATA');
 assert.ok(oauthReplacement);

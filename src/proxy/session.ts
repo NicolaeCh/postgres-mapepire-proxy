@@ -2,6 +2,7 @@ import type { QueryResult, ColumnMetaData } from '@ibm/mapepire-js';
 import { createHash } from 'node:crypto';
 import type { SQLJobInstance } from '../mapepire/sdk.js';
 import type { IbmiSchemaCapabilities } from '../mapepire/schema-capabilities.js';
+import { ibmiObjectStabilizationDelayMs, isTransientIbmiObjectStateError } from '../mapepire/object-stabilization.js';
 import type { PostgresConnection } from 'pg-gateway';
 import { config } from '../config.js';
 import { Logger } from '../logger.js';
@@ -52,7 +53,7 @@ import {
 import { parsePgReturning, reorderParameters, translateSql, type Translation } from '../sql/translator.js';
 import { decideLobIndexCompatibility, parsePgSimpleCreateIndex, type LobIndexColumnType } from '../sql/lob-index.js';
 import { DdlForeignKeyTypeRegistry } from '../sql/ddl-foreign-key.js';
-import { buildCreateOrReplaceAddColumn, DdlTableDefinitionRegistry, planAlterTableAddNotNullNoDefault, parsePgAlterTableRenameColumn, parsePgAlterTableRenameTable, type AddNotNullColumnPlan, type ColumnRenamePlan, type PgTableRename } from '../sql/column-rename.js';
+import { buildCreateOrReplaceAddColumn, buildPortableGenerateSqlCall, DdlTableDefinitionRegistry, planAlterTableAddNotNullNoDefault, parsePgAlterTableRenameColumn, parsePgAlterTableRenameTable, type AddNotNullColumnPlan, type ColumnRenamePlan, type PgTableRename } from '../sql/column-rename.js';
 import { parsePgSavepointCommand, savepointCommandTag, translatePgSavepointToDb2 } from '../sql/transactions.js';
 import { parsePgDeallocate } from '../sql/prepared-control.js';
 import {
@@ -919,17 +920,13 @@ export class ProxySession {
     // QSYS2.GENERATE_SQL is used instead of reconstructing a table from a
     // partial catalog projection. This preserves IBM i-specific column
     // attributes, system names, constraints, and table options exactly as IBM
-    // i itself would recreate them. All auxiliary output is disabled so the
-    // QTEMP source member contains the table statement only.
-    const callSql =
-      `CALL QSYS2.GENERATE_SQL(` +
-      `${quoteDb2String(plan.table)}, ${quoteDb2String(plan.schema)}, 'TABLE', ` +
-      `REPLACE_OPTION => '1', STATEMENT_FORMATTING_OPTION => '0', ` +
-      `DROP_OPTION => '0', COMMENT_OPTION => '0', LABEL_OPTION => '0', HEADER_OPTION => '0', ` +
-      `TRIGGER_OPTION => '0', CONSTRAINT_OPTION => '2', SYSTEM_NAME_OPTION => '1', ` +
-      `PRIVILEGES_OPTION => '0', CREATE_OR_REPLACE_OPTION => '1', ` +
-      `ACTIVATE_ACCESS_CONTROL_OPTION => '0', MASK_AND_PERMISSION_OPTION => '0', ` +
-      `QUALIFIED_NAME_OPTION => '0', ADDITIONAL_INDEX_OPTION => '0', TEMPORAL_OPTION => '0')`;
+    // i itself would recreate them. GENERATE_SQL may also emit auxiliary
+    // statements/header text; below we extract only CREATE OR REPLACE TABLE.
+    // Keep the CALL to IBM's portable documented core. Optional named
+    // GENERATE_SQL parameters vary by IBM i release/PTF level; the live
+    // 0.1.36 run rejected ACTIVATE_ACCESS_CONTROL_OPTION with SQ20483 /
+    // SQLSTATE 4274K.
+    const callSql = buildPortableGenerateSqlCall(plan);
 
     let source: QueryResult<Record<string, unknown>>;
     try {
@@ -937,9 +934,9 @@ export class ProxySession {
       // the generated source as the CALL result set. Prefer it directly; the
       // fallback SELECT keeps compatibility with drivers that consume the CALL
       // result set differently.
-      source = await this.executePaged(callSql, [], 0);
+      source = await this.executePagedWithObjectStabilizationRetry(callSql, [], 0);
       if (!source.data.some((row) => caseInsensitiveValue(row, 'SRCDTA') !== undefined)) {
-        source = await this.executePaged(
+        source = await this.executePagedWithObjectStabilizationRetry(
           'SELECT SRCSEQ, SRCDTA FROM QTEMP.Q_GENSQL ORDER BY SRCSEQ', [], 0,
         );
       }
@@ -956,7 +953,11 @@ export class ProxySession {
       .join('\n')
       .trim();
     const generated = splitSimpleStatements(text)
-      .find((statement) => /^\s*CREATE\s+OR\s+REPLACE\s+TABLE\b/i.test(statement));
+      .map((statement) => {
+        const match = /\bCREATE\s+OR\s+REPLACE\s+TABLE\b/i.exec(statement);
+        return match?.index === undefined ? undefined : statement.slice(match.index);
+      })
+      .find((statement): statement is string => Boolean(statement));
     if (!generated) {
       const error = sqlError('0A000',
         `QSYS2.GENERATE_SQL did not return a usable CREATE OR REPLACE TABLE statement for ${plan.schema}.${plan.table}`);
@@ -980,7 +981,7 @@ export class ProxySession {
     let attempt = 0;
     for (;;) {
       try {
-        return await this.executePaged(translation.sql, parameters, maxRows);
+        return await this.executePagedWithObjectStabilizationRetry(translation.sql, parameters, maxRows);
       } catch (error) {
         const retry = attempt < config.ibmi.reconnectRetries && !this.inTransaction && isIdempotentRead(translation.kind) && isTransportError(error);
         if (!retry) throw error;
@@ -989,6 +990,27 @@ export class ProxySession {
         await this.pool.invalidate(failed, error);
         this.job = await this.pool.acquire();
         this.logger.warn('Retrying idempotent read after Mapepire transport failure', { attempt });
+      }
+    }
+  }
+
+  private async executePagedWithObjectStabilizationRetry(
+    sql: string, parameters: unknown[], maxRows: number,
+  ): Promise<QueryResult<Record<string, unknown>>> {
+    const maxAttempts = 20;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.executePaged(sql, parameters, maxRows);
+      } catch (error) {
+        if (attempt >= maxAttempts || !isTransientIbmiObjectStateError(error, sql)) throw error;
+        const delayMs = ibmiObjectStabilizationDelayMs(attempt);
+        if (attempt === 1 || attempt % 4 === 0) {
+          this.logger.warn('Retrying Db2 for i statement while table object stabilizes', {
+            database: this.client.database, attempt, maxAttempts, delayMs,
+            error: String((error as Error)?.message ?? error),
+          });
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
       }
     }
   }
@@ -1454,7 +1476,7 @@ export class ProxySession {
   }
 
   private async fetchIbmiColumns(schemaName: string, tableName: string): Promise<IbmiColumnRow[]> {
-    const result = await this.executePaged(IBMI_COLUMN_CATALOG_SQL, [schemaName, tableName], 0);
+    const result = await this.executePagedWithObjectStabilizationRetry(IBMI_COLUMN_CATALOG_SQL, [schemaName, tableName], 0);
     if (!this.inTransaction) await this.currentJob().execute('COMMIT');
     return result.data.map((row: Record<string, unknown>) => ({
       schema: String(caseInsensitiveValue(row, 'TABLE_SCHEMA') ?? '').trim(),
@@ -1496,7 +1518,7 @@ export class ProxySession {
   }
 
   private async fetchIbmiIndexes(schemaName: string, tableName: string): Promise<IbmiIndexRow[]> {
-    const result = await this.executePaged(IBMI_INDEX_CATALOG_SQL, [schemaName, tableName], 0);
+    const result = await this.executePagedWithObjectStabilizationRetry(IBMI_INDEX_CATALOG_SQL, [schemaName, tableName], 0);
     if (!this.inTransaction) await this.currentJob().execute('COMMIT');
     let rows = this.mapIbmiIndexRows(result.data);
 
@@ -1516,7 +1538,7 @@ export class ProxySession {
     const unresolvedSqlIndexes = () => rows.filter((row) => row.columnCount > 0 && row.columns.length === 0);
     if (unresolvedSqlIndexes().length > 0) {
       try {
-        const keys = await this.executePaged(IBMI_INDEX_KEY_CATALOG_SQL, [schemaName, tableName], 0);
+        const keys = await this.executePagedWithObjectStabilizationRetry(IBMI_INDEX_KEY_CATALOG_SQL, [schemaName, tableName], 0);
         if (!this.inTransaction) await this.currentJob().execute('COMMIT');
         const byIndex = new Map<string, Array<{ ordinal: number; column: string }>>();
         for (const keyRow of keys.data) {
@@ -1556,7 +1578,7 @@ export class ProxySession {
     const needsNativeStats = rows.length === 0 || unresolvedSqlIndexes().length > 0;
     if (needsNativeStats) {
       try {
-        const native = await this.executePaged(IBMI_NATIVE_INDEX_CATALOG_SQL, [schemaName, tableName], 0);
+        const native = await this.executePagedWithObjectStabilizationRetry(IBMI_NATIVE_INDEX_CATALOG_SQL, [schemaName, tableName], 0);
         if (!this.inTransaction) await this.currentJob().execute('COMMIT');
         const nativeRows = this.mapIbmiIndexRows(native.data);
         if (rows.length === 0) {
@@ -1604,7 +1626,7 @@ export class ProxySession {
   }
 
   private async fetchIbmiForeignKeys(schemaName: string, tableName: string): Promise<IbmiForeignKeyRow[]> {
-    const result = await this.executePaged(IBMI_FOREIGN_KEY_CATALOG_SQL, [schemaName, tableName], 0);
+    const result = await this.executePagedWithObjectStabilizationRetry(IBMI_FOREIGN_KEY_CATALOG_SQL, [schemaName, tableName], 0);
     if (!this.inTransaction) await this.currentJob().execute('COMMIT');
     const grouped = new Map<string, IbmiForeignKeyRow>();
     for (const row of result.data) {
@@ -1636,7 +1658,7 @@ export class ProxySession {
   }
 
   private async fetchIbmiKeyConstraints(schemaName: string, tableName: string): Promise<IbmiKeyConstraintRow[]> {
-    const result = await this.executePaged(IBMI_KEY_CONSTRAINT_CATALOG_SQL, [schemaName, tableName], 0);
+    const result = await this.executePagedWithObjectStabilizationRetry(IBMI_KEY_CONSTRAINT_CATALOG_SQL, [schemaName, tableName], 0);
     if (!this.inTransaction) await this.currentJob().execute('COMMIT');
     const grouped = new Map<string, IbmiKeyConstraintRow>();
     for (const row of result.data) {
@@ -1929,9 +1951,6 @@ function splitSimpleStatements(sql: string): string[] {
   return statements;
 }
 
-function quoteDb2String(value: string): string {
-  return `'${value.replaceAll("'", "''")}'`;
-}
 
 function quoteDb2Identifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`;

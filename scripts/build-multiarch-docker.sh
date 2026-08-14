@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-IMAGE="${IMAGE:-postgres-mapepire-proxy:0.1.36}"
+IMAGE="${IMAGE:-postgres-mapepire-proxy:0.1.37}"
 docker buildx build \
   --platform linux/amd64,linux/ppc64le \
   -t "$IMAGE" \

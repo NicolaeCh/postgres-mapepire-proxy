@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.36 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.36
+podman build -t postgres-mapepire-proxy:0.1.37 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.37
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -198,6 +198,12 @@ ContextForge v1.0.7 serializes database bootstrap with PostgreSQL session adviso
 
 Alembic migrations can define an unbounded PostgreSQL `VARCHAR` foreign-key column that references a sized `VARCHAR(36)` primary key. The proxy now remembers translated parent-column types during the migration session and rewrites dependent foreign-key columns to the exact Db2 type required by the referenced key before executing the dependent `CREATE TABLE`.
 
+
+## ContextForge IBM i object-stabilization hardening (0.1.37)
+
+Release 0.1.37 addresses two live IBM i failures observed after the 0.1.36 index-reflection fix. The empty-table PostgreSQL `ADD COLUMN ... NOT NULL` emulation now calls `QSYS2.GENERATE_SQL` with only IBM's documented core options `CONSTRAINT_OPTION => '2'` and `CREATE_OR_REPLACE_OPTION => '1'`. This avoids `SQ20483 / SQLSTATE 4274K` on IBM i release/PTF levels where newer optional named arguments such as `ACTIVATE_ACCESS_CONTROL_OPTION` are not available.
+
+IBM i can also briefly expose catalog metadata while an ALTER/CREATE OR REPLACE operation is rebuilding the backing *FILE. The proxy now performs a bounded retry for the exact transient signatures seen live: `SQL0443 ... FILE NOT FOUND YET` and `SQL0204` where an ALTER of a long SQL table name reports a different generated system *FILE name (for example `EMAIL_TEAMS` -> `EMAIL00003`). A genuine missing target table is not retried. SQLAlchemy column/index/foreign-key/key-constraint reflection uses the same bounded stabilization retry.
 
 ## ContextForge index reflection hardening (0.1.36)
 

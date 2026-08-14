@@ -36,6 +36,17 @@ export interface AddNotNullColumnPlan {
   probeSql: string;
 }
 
+/**
+ * Build the smallest GENERATE_SQL call needed by the empty-table NOT NULL
+ * emulation. Keep this deliberately close to IBM's documented example: some
+ * IBM i release/PTF levels expose different optional named parameters, and an
+ * unknown optional name fails the CALL with SQ20483 / SQLSTATE 4274K.
+ */
+export function buildPortableGenerateSqlCall(plan: AddNotNullColumnPlan): string {
+  return `CALL QSYS2.GENERATE_SQL(${quoteSqlString(plan.table)}, ${quoteSqlString(plan.schema)}, 'TABLE', ` +
+    `CONSTRAINT_OPTION => '2', CREATE_OR_REPLACE_OPTION => '1')`;
+}
+
 interface StoredTableDefinition {
   schema: string;
   table: string;
@@ -481,6 +492,10 @@ function splitQualifiedIdentifier(value: string): string[] {
   }
   parts.push(value.slice(start).trim());
   return parts.filter(Boolean);
+}
+
+function quoteSqlString(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 function normalizeIdentifier(value: string): string {
