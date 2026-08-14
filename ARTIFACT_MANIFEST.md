@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.32 reference implementation**
+Version: **0.1.33 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.32 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.32.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.33.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 
@@ -170,3 +170,10 @@ See `docs/VALIDATION.md`. This build environment could not resolve npm packages 
 - Non-unique indexes that Db2 for i cannot physically create on LOB/XML/DATALINK keys can be acknowledged with a prominent warning (`SQL_UNSUPPORTED_NONUNIQUE_LOB_INDEX_POLICY=skip`, default); `error` enables strict physical-index behavior. UNIQUE indexes are never skipped.
 - `scripts/verify-lob-index-compat.mjs` and strengthened ContextForge DDL verifier cover the JSONB tags migration shape.
 - `docs/BUILD_FIX_0.1.32.md` compatibility note.
+## 0.1.33 additions
+
+- PostgreSQL empty-table `ADD COLUMN ... NOT NULL` emulation without a persistent default.
+- Correct PostgreSQL `int2vector` wire metadata for SQLAlchemy index reflection.
+- PostgreSQL table rename mapping to IBM i `RENAME TABLE`.
+- IBM Toolbox currently-committed concurrency default for eligible read-only `READ COMMITTED` probes.
+

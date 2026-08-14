@@ -21,7 +21,7 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.32 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.33 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
@@ -151,3 +151,12 @@ The container build runs `scripts/verify-postgres-alter-table.mjs`, which checks
 - Conservative simple CREATE INDEX parsing identifies the ContextForge `idx_tools_tags ON tools(tags)` shape.
 - The compatibility decision skips only non-unique LOB-backed indexes in `skip` mode; strict `error` mode rejects them; UNIQUE LOB-backed indexes are always rejected.
 - Complex expression/partial indexes are not classified by the fallback.
+## 0.1.33 NOT NULL / int2vector / table-rename validation
+
+- Full TypeScript semantic compilation succeeds in the packaging environment using local dependency type stubs matching the declared Mapepire/JDBC option contract; the dependency-resolved Node 24 container build on the deployment host remains the definitive integration check.
+- Focused emitted-JavaScript checks verify `OAUTH_TOKENS.APP_USER_EMAIL` planning as an emptiness probe plus nullable ADD and SET NOT NULL, with no DEFAULT.
+- Focused reflection checks verify `pg_index.indoption` uses PostgreSQL OID 22 and space-vector values (`0`, `0 0`).
+- `verify-postgres-alter-table.mjs` covers PostgreSQL table rename to IBM i `RENAME TABLE` and the ADD-NOT-NULL sequence.
+- `verify-sqlalchemy-reflection.mjs` covers the SQLAlchemy index reflection wire shape.
+- `MAPEPIRE_JDBC_CONCURRENT_ACCESS_RESOLUTION` is validated as one of `1`, `2`, or `3`, defaulting to `1`.
+

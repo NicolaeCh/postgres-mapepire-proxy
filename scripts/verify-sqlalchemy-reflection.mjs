@@ -106,6 +106,9 @@ array_agg('') AS elements_opclass, array_agg(true) AS elements_opdefault) idx_co
 WHERE pg_catalog.pg_index.indrelid IN ($1::OID)`;
 r = await session.resolveSynthetic(indexSql, [String(a2aOid)]);
 assert.deepEqual(r.rows.map((x)=>x[1]), ['idx_a2a_agents_name','idx_a2a_agents_enabled']);
+assert.equal(r.fields[4].typeOid, 22);
+assert.equal(r.rows[0][4], '0');
+assert.deepEqual(String(r.rows[0][4]).split(' ').map(Number), [0]);
 assert.equal(r.rows[0][10], '{"name"}');
 
 const fkSql = `SELECT pg_catalog.pg_class.relname, pg_catalog.pg_constraint.conname,

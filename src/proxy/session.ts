@@ -52,7 +52,7 @@ import {
 import { parsePgReturning, reorderParameters, translateSql, type Translation } from '../sql/translator.js';
 import { decideLobIndexCompatibility, parsePgSimpleCreateIndex, type LobIndexColumnType } from '../sql/lob-index.js';
 import { DdlForeignKeyTypeRegistry } from '../sql/ddl-foreign-key.js';
-import { DdlTableDefinitionRegistry, parsePgAlterTableRenameColumn, type ColumnRenamePlan } from '../sql/column-rename.js';
+import { DdlTableDefinitionRegistry, planAlterTableAddNotNullNoDefault, parsePgAlterTableRenameColumn, parsePgAlterTableRenameTable, type AddNotNullColumnPlan, type ColumnRenamePlan, type PgTableRename } from '../sql/column-rename.js';
 import { parsePgSavepointCommand, savepointCommandTag, translatePgSavepointToDb2 } from '../sql/transactions.js';
 import { parsePgDeallocate } from '../sql/prepared-control.js';
 import {
@@ -693,9 +693,14 @@ export class ProxySession {
 
     let translation: Translation;
     let columnRenamePlan: ColumnRenamePlan | undefined;
+    let tableRename: PgTableRename | undefined;
+    let addNotNullPlan: AddNotNullColumnPlan | undefined;
     try {
       const rename = parsePgAlterTableRenameColumn(sql, this.currentSchema);
-      if (rename) {
+      tableRename = parsePgAlterTableRenameTable(sql, this.currentSchema);
+      if (tableRename) {
+        translation = { original: sql, sql: tableRename.db2Sql, kind: rawKind, parameterOrder: [] };
+      } else if (rename) {
         const columns = await this.fetchIbmiColumns(rename.schema, rename.table);
         const oldColumn = columns.find((column) => sameSqlIdentifier(column.name, rename.oldColumn));
         if (!oldColumn) {
@@ -726,6 +731,16 @@ export class ProxySession {
             alignments: aligned.alignments,
           });
         }
+
+        addNotNullPlan = planAlterTableAddNotNullNoDefault(translation.sql, this.currentSchema);
+        if (addNotNullPlan) {
+          const probe = await this.executePaged(addNotNullPlan.probeSql, [], 1);
+          if (probe.data.length > 0) {
+            throw sqlError('23502',
+              `Cannot add NOT NULL column ${addNotNullPlan.column} without DEFAULT to non-empty table ${addNotNullPlan.schema}.${addNotNullPlan.table}`);
+          }
+          translation.sql = addNotNullPlan.addNullableSql;
+        }
       }
       if (config.sql.logText) this.logger.info('Translated SQL', { original: sql, db2: translation.sql });
     } catch (error) {
@@ -736,7 +751,26 @@ export class ProxySession {
     let result: QueryResult<Record<string, unknown>>;
     try {
       result = await this.executeWithSafeRetry(translation, values, maxRows);
-      if (columnRenamePlan) {
+      if (addNotNullPlan) {
+        // Db2 for i rejects ADD COLUMN ... NOT NULL without DEFAULT. On an
+        // empty table, add the column nullable and immediately tighten the
+        // attribute in the same PostgreSQL transaction. If a concurrent row
+        // somehow appears before SET NOT NULL, Db2 rejects the second step
+        // and normal transaction rollback removes the first step as well.
+        await this.currentJob().execute(addNotNullPlan.setNotNullSql);
+      }
+      if (tableRename) {
+        this.ddlTableDefinitions.renameTable(tableRename);
+        this.ddlForeignKeyTypes.renameTable(
+          `${tableRename.schema}.${tableRename.table}`,
+          tableRename.newTable,
+          this.currentSchema,
+        );
+        this.logger.info('PostgreSQL table rename mapped to IBM i RENAME TABLE', {
+          database: this.client.database, schema: tableRename.schema,
+          oldTable: tableRename.table, newTable: tableRename.newTable,
+        });
+      } else if (columnRenamePlan) {
         this.ddlTableDefinitions.commitRename(columnRenamePlan);
         this.ddlForeignKeyTypes.renameColumn(
           `${columnRenamePlan.request.schema}.${columnRenamePlan.request.table}`,
@@ -751,6 +785,14 @@ export class ProxySession {
           oldColumn: columnRenamePlan.request.oldColumn,
           newColumn: columnRenamePlan.request.newColumn,
           preservedSystemColumnName: columnRenamePlan.systemColumnName,
+        });
+      } else if (addNotNullPlan) {
+        this.ddlTableDefinitions.registerAlterAddColumn(addNotNullPlan.translatedAlterSql, this.currentSchema);
+        this.ddlForeignKeyTypes.registerAlterAddColumn(addNotNullPlan.translatedAlterSql, this.currentSchema);
+        this.logger.info('PostgreSQL ADD COLUMN NOT NULL without DEFAULT emulated for empty IBM i table', {
+          database: this.client.database, schema: addNotNullPlan.schema, table: addNotNullPlan.table,
+          column: addNotNullPlan.column, strategy: 'ADD nullable + SET NOT NULL',
+          persistentDefaultAdded: false,
         });
       } else {
         this.ddlForeignKeyTypes.registerCreateTable(translation.sql, this.currentSchema);
@@ -772,7 +814,9 @@ export class ProxySession {
       }
       const mapped = mapDb2Error(error) as Error & { proxySql?: string; proxyDb2Sql?: string; detail?: string };
       mapped.proxySql = sql;
-      mapped.proxyDb2Sql = translation.sql;
+      mapped.proxyDb2Sql = addNotNullPlan
+        ? `${addNotNullPlan.addNullableSql}; ${addNotNullPlan.setNotNullSql}`
+        : translation.sql;
       if (isDb2Sql7008(error)) {
         const capabilities = this.currentSchemaCapabilities;
         let journalState: string;

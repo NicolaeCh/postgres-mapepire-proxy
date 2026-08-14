@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 
 const { translateSql } = await import('../dist/src/sql/translator.js');
-const { DdlTableDefinitionRegistry, parsePgAlterTableRenameColumn } = await import('../dist/src/sql/column-rename.js');
+const { DdlTableDefinitionRegistry, isAlterTableAddNotNullNoDefault, planAlterTableAddNotNullNoDefault, parsePgAlterTableRenameColumn, parsePgAlterTableRenameTable } = await import('../dist/src/sql/column-rename.js');
 const { DdlForeignKeyTypeRegistry } = await import('../dist/src/sql/ddl-foreign-key.js');
 
 const options = {
@@ -113,3 +113,40 @@ txRegistry.rollbackTransaction();
 assert.ok(txRegistry.planRename(rename, 'IS_ACTIVE'));
 
 console.log('PostgreSQL column rename -> IBM i CREATE OR REPLACE PRESERVE ROWS compatibility check OK');
+
+// PostgreSQL permits ADD COLUMN NOT NULL without DEFAULT when the target table
+// is empty. Db2 for i rejects that direct ADD form (SQL0109), so the proxy
+// probes for rows, then executes ADD nullable + SET NOT NULL in the same
+// transaction. No exact table-definition registry and no synthetic DEFAULT
+// are required.
+const addEmail = tr('ALTER TABLE oauth_tokens ADD COLUMN app_user_email VARCHAR(255) NOT NULL');
+assert.equal(isAlterTableAddNotNullNoDefault(addEmail, 'MCPDATA'), true);
+const addEmailPlan = planAlterTableAddNotNullNoDefault(addEmail, 'MCPDATA');
+assert.ok(addEmailPlan);
+assert.equal(addEmailPlan.probeSql, 'SELECT 1 AS PROXY_ROW FROM "MCPDATA"."OAUTH_TOKENS" FETCH FIRST 1 ROW ONLY');
+assert.equal(addEmailPlan.addNullableSql, 'ALTER TABLE "MCPDATA"."OAUTH_TOKENS" ADD COLUMN APP_USER_EMAIL VARCHAR(255)');
+assert.equal(addEmailPlan.setNotNullSql, 'ALTER TABLE "MCPDATA"."OAUTH_TOKENS" ALTER COLUMN APP_USER_EMAIL SET NOT NULL');
+assert.doesNotMatch(addEmailPlan.addNullableSql, /DEFAULT/i);
+assert.doesNotMatch(addEmailPlan.setNotNullSql, /DEFAULT/i);
+
+// SQLAlchemy/Alembic op.rename_table() emits ALTER TABLE old RENAME TO new.
+// IBM i has a native RENAME TABLE statement, so table rename is mapped rather
+// than routed through the column-rename emulation.
+const tableRename = parsePgAlterTableRenameTable(
+  'ALTER TABLE servers_tmp_nounique RENAME TO servers',
+  'MCPDATA',
+);
+assert.ok(tableRename);
+assert.equal(tableRename.db2Sql, 'RENAME TABLE servers_tmp_nounique TO SERVERS');
+const tempRegistry = new DdlTableDefinitionRegistry();
+tempRegistry.registerCreateTable(tr('CREATE TABLE servers_tmp_nounique (id VARCHAR(36) NOT NULL)'), 'MCPDATA');
+assert.equal(tempRegistry.renameTable(tableRename), true);
+assert.equal(tempRegistry.hasTable('servers', 'MCPDATA'), true);
+assert.equal(tempRegistry.hasTable('servers_tmp_nounique', 'MCPDATA'), false);
+
+types.registerCreateTable(tr('CREATE TABLE servers_tmp_nounique (id VARCHAR(36) NOT NULL)'), 'MCPDATA');
+types.renameTable('servers_tmp_nounique', 'servers', 'MCPDATA');
+assert.equal(types.getColumnType('servers', 'id', 'MCPDATA'), 'VARCHAR(36)');
+
+console.log('PostgreSQL ADD NOT NULL / table rename compatibility check OK');
+

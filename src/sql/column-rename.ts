@@ -16,6 +16,28 @@ export interface ColumnRenamePlan {
   storedCreateSql: string;
 }
 
+export interface PgTableRename {
+  original: string;
+  schema: string;
+  table: string;
+  relationSql: string;
+  newTable: string;
+  newTableSql: string;
+  db2Sql: string;
+}
+
+export interface AddNotNullColumnPlan {
+  schema: string;
+  table: string;
+  column: string;
+  columnSql: string;
+  definition: string;
+  translatedAlterSql: string;
+  probeSql: string;
+  addNullableSql: string;
+  setNotNullSql: string;
+}
+
 interface StoredTableDefinition {
   schema: string;
   table: string;
@@ -58,6 +80,31 @@ export function parsePgAlterTableRenameColumn(sql: string, currentSchema: string
   };
 }
 
+/** Parse PostgreSQL ALTER TABLE old RENAME TO new (table rename). */
+export function parsePgAlterTableRenameTable(sql: string, currentSchema: string): PgTableRename | undefined {
+  const pattern = new RegExp(
+    String.raw`^\s*ALTER\s+TABLE\s+${RELATION}\s+RENAME\s+TO\s+(${IDENT})\s*;?\s*$`,
+    'i',
+  );
+  const match = pattern.exec(sql);
+  if (!match) return undefined;
+  const first = match[1]!;
+  const second = match[2];
+  const newSql = match[3]!;
+  const schemaSql = second ? first : currentSchema;
+  const tableSql = second ?? first;
+  const relationSql = second ? `${first}.${second}` : first;
+  return {
+    original: sql,
+    schema: normalizeIdentifier(schemaSql),
+    table: normalizeIdentifier(tableSql),
+    relationSql,
+    newTable: normalizeIdentifier(newSql),
+    newTableSql: renderSqlIdentifier(newSql),
+    db2Sql: `RENAME TABLE ${relationSql} TO ${renderSqlIdentifier(newSql)}`,
+  };
+}
+
 /**
  * Session-local exact DDL registry used for lossless IBM i column rename
  * emulation.
@@ -68,6 +115,44 @@ export function parsePgAlterTableRenameColumn(sql: string, currentSchema: string
  * for which the proxy has no trusted definition, the caller must fail safely
  * rather than perform a destructive add/copy/drop sequence.
  */
+export function isAlterTableAddNotNullNoDefault(sql: string, currentSchema: string): boolean {
+  return Boolean(planAlterTableAddNotNullNoDefault(sql, currentSchema));
+}
+
+/**
+ * Plan PostgreSQL ADD COLUMN ... NOT NULL without DEFAULT for Db2 for i.
+ *
+ * PostgreSQL permits this when the target table is empty. Db2 for i requires
+ * DEFAULT when NOT NULL appears in the ADD COLUMN definition, but it permits
+ * a nullable ADD followed by ALTER COLUMN ... SET NOT NULL. ProxySession
+ * performs an emptiness probe first, then executes both DDL statements in the
+ * caller's transaction. No synthetic persistent default is introduced.
+ */
+export function planAlterTableAddNotNullNoDefault(
+  sql: string, currentSchema: string,
+): AddNotNullColumnPlan | undefined {
+  const add = parseAlterAddColumn(sql, currentSchema);
+  if (!add) return undefined;
+  if (!/\bNOT\s+NULL\b/i.test(add.definition)) return undefined;
+  if (/\bDEFAULT\b/i.test(add.definition)) return undefined;
+  if (/\b(?:GENERATED|IDENTITY)\b/i.test(add.definition)) return undefined;
+
+  const nullableDefinition = add.definition.replace(/\s*\bNOT\s+NULL\b\s*/i, ' ').replace(/\s+/g, ' ').trim();
+  if (!nullableDefinition) return undefined;
+  const relation = `${quoteIdentifier(add.schema)}.${quoteIdentifier(add.table)}`;
+  return {
+    schema: add.schema,
+    table: add.table,
+    column: normalizeIdentifier(add.columnSql),
+    columnSql: add.columnSql,
+    definition: add.definition,
+    translatedAlterSql: sql,
+    probeSql: `SELECT 1 AS PROXY_ROW FROM ${relation} FETCH FIRST 1 ROW ONLY`,
+    addNullableSql: `ALTER TABLE ${relation} ADD COLUMN ${add.columnSql} ${nullableDefinition}`,
+    setNotNullSql: `ALTER TABLE ${relation} ALTER COLUMN ${add.columnSql} SET NOT NULL`,
+  };
+}
+
 export class DdlTableDefinitionRegistry {
   private tables = new Map<string, StoredTableDefinition>();
   private transactionSnapshot?: Map<string, StoredTableDefinition>;
@@ -148,6 +233,23 @@ export class DdlTableDefinitionRegistry {
       table: plan.request.table,
       createSql: plan.storedCreateSql,
     });
+  }
+
+  renameTable(request: PgTableRename): boolean {
+    const oldKey = tableKey(request.schema, request.table);
+    const stored = this.tables.get(oldKey);
+    if (!stored) return false;
+    const parsed = parseCreateTable(stored.createSql, request.schema);
+    if (!parsed) return false;
+    const createSql = replaceCreateTableRelation(stored.createSql, `${quoteIdentifier(request.schema)}.${request.newTableSql}`);
+    if (!createSql) return false;
+    this.tables.delete(oldKey);
+    this.tables.set(tableKey(request.schema, request.newTable), {
+      schema: request.schema,
+      table: request.newTable,
+      createSql,
+    });
+    return true;
   }
 
   hasTable(tableName: string, currentSchema: string): boolean {
@@ -294,6 +396,20 @@ function replaceIdentifierReferences(text: string, oldNormalized: string, newSql
     out += ch; i++;
   }
   return out;
+}
+
+function quoteIdentifier(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+function replaceCreateTableRelation(sql: string, newTableSql: string): string | undefined {
+  const pattern = new RegExp(
+    String.raw`^(\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:(?:GLOBAL|LOCAL)\s+TEMPORARY\s+|TEMPORARY\s+|TEMP\s+|UNLOGGED\s+)?TABLE\s+)${IDENT}(?:\s*\.\s*${IDENT})?`,
+    'i',
+  );
+  const match = pattern.exec(sql);
+  if (!match) return undefined;
+  return `${match[1]}${newTableSql}${sql.slice(match[0].length)}`;
 }
 
 function renderSqlIdentifier(value: string): string {

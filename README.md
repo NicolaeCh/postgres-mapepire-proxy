@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.32 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.32
+podman build -t postgres-mapepire-proxy:0.1.33 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.33
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -197,6 +197,15 @@ ContextForge v1.0.7 serializes database bootstrap with PostgreSQL session adviso
 ## ContextForge foreign-key datatype compatibility (0.1.23)
 
 Alembic migrations can define an unbounded PostgreSQL `VARCHAR` foreign-key column that references a sized `VARCHAR(36)` primary key. The proxy now remembers translated parent-column types during the migration session and rewrites dependent foreign-key columns to the exact Db2 type required by the referenced key before executing the dependent `CREATE TABLE`.
+
+
+## PostgreSQL empty-table NOT NULL, SQLAlchemy vector reflection and concurrent readers (0.1.33)
+
+Release 0.1.33 adds a general compatibility path for PostgreSQL `ALTER TABLE ... ADD COLUMN ... NOT NULL` without a default. Db2 for i requires a default on that direct ADD form. The proxy first verifies the table is empty, then executes a nullable ADD followed by `ALTER COLUMN ... SET NOT NULL` inside the same PostgreSQL transaction. The final IBM i column therefore has `NOT NULL` and no persistent default, matching PostgreSQL empty-table semantics. A non-empty table is rejected with SQLSTATE `23502`.
+
+SQLAlchemy index reflection now exposes `pg_index.indoption` as PostgreSQL `int2vector` (OID 22) with space-separated vector text rather than as `int2[]`. This fixes SQLAlchemy/psycopg reflection failures such as `'list' object has no attribute 'split'`. PostgreSQL table rename (`ALTER TABLE old RENAME TO new`) is also mapped to IBM i native `RENAME TABLE`.
+
+Mapepire JDBC `concurrent access resolution` defaults to `1` (use currently committed) through `MAPEPIRE_JDBC_CONCURRENT_ACCESS_RESOLUTION`. This reduces eligible read-only metadata/version-probe lock waits under the default `read committed` isolation without changing transaction or advisory-lock semantics. Values `2` and `3` request wait-for-outcome and skip-locks respectively.
 
 ## PostgreSQL JSON/JSONB defaults and LOB index policy (0.1.32)
 

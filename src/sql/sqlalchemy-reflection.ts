@@ -81,7 +81,7 @@ const int4 = (name: string) => field(name, OID.int4, 4);
 const textArray = (name: string) => field(name, OID.textArray, -1);
 const nameArray = (name: string) => field(name, OID.nameArray, -1);
 const boolArray = (name: string) => field(name, OID.boolArray, -1);
-const int2Array = (name: string) => field(name, OID.int2Array, -1);
+const int2Vector = (name: string) => field(name, OID.int2vector, -1);
 
 /**
  * Recognizes the stable PostgreSQL catalog query families emitted by
@@ -211,7 +211,7 @@ export function renderSqlAlchemyIndexes(
   tableIndexes: Array<{ tableOid: number; indexes: IbmiIndexRow[] }>,
 ): SyntheticResult {
   const fields: FieldDescription[] = [
-    oid('indrelid'), nameField('relname'), bool('indisunique'), bool('has_constraint'), int2Array('indoption'),
+    oid('indrelid'), nameField('relname'), bool('indisunique'), bool('has_constraint'), int2Vector('indoption'),
     textArray('reloptions'), nameField('amname'), text('filter_definition'), int2('indnkeyatts'),
     bool('indnullsnotdistinct'), textArray('elements'), boolArray('elements_is_expr'), nameArray('elements_opclass'),
     boolArray('elements_opdefault'),
@@ -225,7 +225,7 @@ export function renderSqlAlchemyIndexes(
         pgVisibleIdentifier(index.name),
         index.unique,
         false,
-        pgIntArray(columns.map(() => 0)),
+        columns.map(() => 0).join(' '),
         null,
         'btree',
         index.filterDefinition,

@@ -137,3 +137,9 @@ Run `node scripts/verify-postgres-alter-table.mjs` after `npm run build`.
 ## PostgreSQL JSONB / Db2 LOB index compatibility regression (0.1.32)
 
 The image build runs `verify-contextforge-ddl.mjs` against the Alembic JSONB tags shape and `verify-lob-index-compat.mjs` against the simple non-unique/unique index policy. Verify at runtime that a non-unique index on a CLOB-backed column logs `Skipped PostgreSQL non-unique index unsupported by Db2 for i LOB key rules` with `physicalIndexCreated=false`; a UNIQUE LOB-backed index must return SQLSTATE `0A000`.
+## PostgreSQL ADD NOT NULL and SQLAlchemy int2vector regression (0.1.33)
+
+A successful image build must execute both `verify-postgres-alter-table.mjs` and `verify-sqlalchemy-reflection.mjs`. The former verifies that an empty-table PostgreSQL ADD NOT NULL/no-default operation is planned as an IBM i nullable ADD plus SET NOT NULL with no persistent default. The latter verifies that `pg_index.indoption` is RowDescription OID 22 (`int2vector`) with space-separated text rather than `int2[]`.
+
+For a live ContextForge migration, the prior `'list' object has no attribute 'split'` index/constraint reflection warnings should disappear. The OAuth migration should log `PostgreSQL ADD COLUMN NOT NULL without DEFAULT emulated for empty IBM i table`.
+

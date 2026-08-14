@@ -77,6 +77,8 @@ describe('SQLAlchemy IBM i reflection rendering', () => {
     }];
     const result = renderSqlAlchemyIndexes([{ tableOid: 12345, indexes }]);
     expect(result.rows[0]?.[1]).toBe('idx_a2a_agents_visibility');
+    expect(result.fields[4]?.typeOid).toBe(22); // PostgreSQL int2vector, not int2[]
+    expect(result.rows[0]?.[4]).toBe('0');
     expect(result.rows[0]?.[10]).toBe('{"visibility"}');
   });
 });

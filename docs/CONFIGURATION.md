@@ -106,6 +106,7 @@ One `SQLJob` is leased to one PostgreSQL session for that session's lifetime. It
 | `MAPEPIRE_JDBC_DECIMAL_SEPARATOR` | `.` | Decimal separator used by JDBC. |
 | `MAPEPIRE_JDBC_AUTO_COMMIT` | `false` | Must remain `false` for proxy-controlled transaction semantics. |
 | `MAPEPIRE_JDBC_TRANSACTION_ISOLATION` | `read committed` | Backend isolation level. |
+| `MAPEPIRE_JDBC_CONCURRENT_ACCESS_RESOLUTION` | `1` | IBM Toolbox concurrent-access policy: `1` = use currently committed, `2` = wait for outcome, `3` = skip locks. `1` better matches PostgreSQL read-only `READ COMMITTED` probes while a writer has uncommitted updates/deletes. |
 | `MAPEPIRE_JDBC_BLOCK_SIZE` | `128` | Toolbox block size supported by Mapepire. |
 | `MAPEPIRE_JDBC_DATA_COMPRESSION` | `true` | Enable data compression. |
 | `MAPEPIRE_JDBC_PREFETCH` | `true` | Enable Toolbox prefetch. |

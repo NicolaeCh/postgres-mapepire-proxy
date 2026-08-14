@@ -72,6 +72,11 @@ const isolation = str('MAPEPIRE_JDBC_TRANSACTION_ISOLATION', 'read committed') a
   | 'repeatable read'
   | 'serializable';
 
+const concurrentAccessResolution = str('MAPEPIRE_JDBC_CONCURRENT_ACCESS_RESOLUTION', '1');
+if (!['1', '2', '3'].includes(concurrentAccessResolution)) {
+  throw new Error('MAPEPIRE_JDBC_CONCURRENT_ACCESS_RESOLUTION must be one of 1,2,3');
+}
+
 const jdbc: JDBCOptions = {
   naming: str('MAPEPIRE_JDBC_NAMING', 'sql') as 'sql' | 'system',
   libraries: csv('MAPEPIRE_JDBC_LIBRARIES'),
@@ -80,6 +85,10 @@ const jdbc: JDBCOptions = {
   'decimal separator': str('MAPEPIRE_JDBC_DECIMAL_SEPARATOR', '.') as JDBCOptions['decimal separator'],
   'auto commit': bool('MAPEPIRE_JDBC_AUTO_COMMIT', false),
   'transaction isolation': isolation,
+  // IBM Toolbox JDBC: 1 = use currently committed. This better matches
+  // PostgreSQL READ COMMITTED readers and prevents metadata probes from
+  // blocking behind a migration writer when an older committed row exists.
+  'concurrent access resolution': concurrentAccessResolution as JDBCOptions['concurrent access resolution'],
   'block size': blockSize as JDBCOptions['block size'],
   'data compression': bool('MAPEPIRE_JDBC_DATA_COMPRESSION', true),
   prefetch: bool('MAPEPIRE_JDBC_PREFETCH', true),

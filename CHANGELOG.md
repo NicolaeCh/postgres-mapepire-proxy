@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.33 - 2026-08-14
+
+- Emulate PostgreSQL `ALTER TABLE ... ADD COLUMN ... NOT NULL` without `DEFAULT` on empty tables using an IBM i-safe two-step `ADD` nullable + `ALTER COLUMN ... SET NOT NULL` sequence in the same transaction; no synthetic persistent default is introduced.
+- Return PostgreSQL SQLSTATE `23502` when the target table is not empty instead of silently fabricating values.
+- Correct SQLAlchemy PostgreSQL index reflection for `pg_index.indoption`: advertise PostgreSQL `int2vector` OID 22 and return space-separated vector text instead of `int2[]`, fixing the `'list' object has no attribute 'split'` reflection failure.
+- Map PostgreSQL `ALTER TABLE old RENAME TO new` to IBM i native `RENAME TABLE old TO new` and move session-local DDL/FK type registry keys with the table.
+- Default IBM Toolbox `concurrent access resolution` to `1` (use currently committed) to reduce read-only metadata/version-probe contention under the proxy's `read committed` backend isolation; configurable with `MAPEPIRE_JDBC_CONCURRENT_ACCESS_RESOLUTION=1|2|3`.
+- Keep PostgreSQL advisory locks/session cleanup unchanged; SQL0913 can still occur when there is no previously committed object/row image to read.
+- Bring Dockerfile build verifiers into parity with Containerfile by including the LOB-index compatibility gate.
+
 ## 0.1.32 - 2026-08-14
 
 - Translate PostgreSQL JSON/JSONB casts to the proxy's Db2 for i CLOB representation, including Alembic defaults such as `DEFAULT '[]'::jsonb` -> `DEFAULT CLOB('[]')`.

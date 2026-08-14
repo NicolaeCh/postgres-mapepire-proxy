@@ -81,3 +81,12 @@ Decision: 5.4.0. It is used as a secondary classifier, not as a complete Postgre
 - pgAdmin 4 REL-9_17 table `count.sql`, `nodes.sql`, `properties.sql`, `get_schema_oid.sql`, `get_table.sql`, and table view implementation.
 - IBM Db2 for i `QSYS2.SYSTABLES` catalog documentation.
 - IBM Db2 for i CREATE TABLE / identity-column documentation.
+## Sources added for 0.1.33
+
+- IBM Db2 for i 7.5, Adding a column / ALTER TABLE: a normal added `NOT NULL` column requires a default; `ALTER COLUMN ... SET NOT NULL` is supported when existing values satisfy the constraint.
+- IBM Toolbox for Java JDBC properties: `concurrent access resolution` values `1` (use currently committed), `2` (wait for outcome), and `3` (skip locks).
+- IBM Db2 for i QAQQINI `SQL_CONCURRENT_ACCESS_RESOLUTION`: semantics and isolation-level applicability of `*WAIT` and `*CURCMT`.
+- SQLAlchemy 2.0.51 `dialects/postgresql/pg_catalog.py`: `pg_index.indoption` is `INT2VECTOR`; the result processor parses space-separated vector text.
+- IBM MCP ContextForge v1.0.7 migration `14ac971cee42_add_user_context_to_oauth_tokens.py`: PostgreSQL empty-table `app_user_email VARCHAR(255) NOT NULL` migration shape.
+- IBM MCP ContextForge v1.0.7 migration `e182847d89e6_unique_constraints_changes_for_gateways_.py`: SQLAlchemy autoload and `op.rename_table()` migration shape.
+

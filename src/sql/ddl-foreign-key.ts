@@ -110,6 +110,19 @@ export class DdlForeignKeyTypeRegistry {
     this.types.set(typeKey(table.schema, table.table, newColumn), type);
   }
 
+  renameTable(tableName: string, newTable: string, currentSchema: string): void {
+    const table = splitQualifiedName(tableName, currentSchema);
+    const oldPrefix = `${normalizeIdentifier(table.schema)}.${normalizeIdentifier(table.table)}.`;
+    const moved: Array<[string, string]> = [];
+    for (const [key, value] of this.types.entries()) {
+      if (!key.startsWith(oldPrefix)) continue;
+      const column = key.slice(oldPrefix.length);
+      moved.push([typeKey(table.schema, newTable, column), value]);
+      this.types.delete(key);
+    }
+    for (const [key, value] of moved) this.types.set(key, value);
+  }
+
   registerAlterAddColumn(sql: string, currentSchema: string): void {
     const ident = String.raw`(?:(?:"(?:[^"]|"")*")|(?:[A-Za-z_][A-Za-z0-9_$#@]*))`;
     const relation = String.raw`((?:${ident})(?:\s*\.\s*(?:${ident}))?)`;

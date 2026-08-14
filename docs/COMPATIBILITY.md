@@ -116,3 +116,13 @@ For a table whose exact translated CREATE TABLE definition is known, `ALTER TABL
 PostgreSQL `JSON`/`JSONB` storage is mapped to UTF-8 `CLOB(2G)`. Simple PostgreSQL casts are mapped to the same representation (`'[]'::jsonb` -> `CLOB('[]')`), including column defaults and parameterized DML.
 
 Db2 for i does not permit LOB/XML/DATALINK columns as direct index keys. For conservative plain-column, non-unique CREATE INDEX statements that target such columns, `SQL_UNSUPPORTED_NONUNIQUE_LOB_INDEX_POLICY=skip` (default) acknowledges the PostgreSQL performance hint and logs that no physical IBM i index was created. `error` selects strict behavior. UNIQUE indexes are always rejected rather than skipped because uniqueness changes data validity. Complex expression/partial/operator-class indexes are outside this fallback and continue to normal backend validation.
+## 0.1.33 empty-table NOT NULL, index-vector reflection and table rename
+
+PostgreSQL `ALTER TABLE ... ADD COLUMN ... NOT NULL` without a default is supported when the target table is empty. The proxy probes for rows and then executes a nullable `ADD COLUMN` followed by `ALTER COLUMN ... SET NOT NULL` in the same backend transaction. It does not invent a persistent default. A non-empty table is rejected with SQLSTATE `23502`.
+
+SQLAlchemy PostgreSQL reflection receives `pg_index.indoption` using PostgreSQL `int2vector` OID 22 and space-separated vector text. This matches SQLAlchemy's native PostgreSQL result processor and avoids psycopg decoding the value to a Python array before SQLAlchemy processes it.
+
+PostgreSQL `ALTER TABLE old RENAME TO new` is translated to IBM i `RENAME TABLE old TO new`. Column rename remains the separate `CREATE OR REPLACE ... ON REPLACE PRESERVE ROWS` emulation introduced in 0.1.31.
+
+The default IBM Toolbox concurrent-access setting is `MAPEPIRE_JDBC_CONCURRENT_ACCESS_RESOLUTION=1` (`use currently committed`) to improve eligible read-only `READ COMMITTED` probes. This does not guarantee that a query can read an object that has never had a committed version.
+
