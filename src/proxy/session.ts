@@ -52,7 +52,7 @@ import {
 import { parsePgReturning, reorderParameters, translateSql, type Translation } from '../sql/translator.js';
 import { decideLobIndexCompatibility, parsePgSimpleCreateIndex, type LobIndexColumnType } from '../sql/lob-index.js';
 import { DdlForeignKeyTypeRegistry } from '../sql/ddl-foreign-key.js';
-import { DdlTableDefinitionRegistry, planAlterTableAddNotNullNoDefault, parsePgAlterTableRenameColumn, parsePgAlterTableRenameTable, type AddNotNullColumnPlan, type ColumnRenamePlan, type PgTableRename } from '../sql/column-rename.js';
+import { buildCreateOrReplaceAddColumn, DdlTableDefinitionRegistry, planAlterTableAddNotNullNoDefault, parsePgAlterTableRenameColumn, parsePgAlterTableRenameTable, type AddNotNullColumnPlan, type ColumnRenamePlan, type PgTableRename } from '../sql/column-rename.js';
 import { parsePgSavepointCommand, savepointCommandTag, translatePgSavepointToDb2 } from '../sql/transactions.js';
 import { parsePgDeallocate } from '../sql/prepared-control.js';
 import {
@@ -68,6 +68,8 @@ import {
   renderSqlAlchemyHasRelation,
   renderSqlAlchemyIndexes,
   renderSqlAlchemyKeyConstraints,
+  renderSqlAlchemyTableComments,
+  renderSqlAlchemyCheckConstraints,
   renderSqlAlchemyRelationNames,
   renderSqlAlchemyRelationOid,
   renderSqlAlchemyRelationOids,
@@ -695,6 +697,7 @@ export class ProxySession {
     let columnRenamePlan: ColumnRenamePlan | undefined;
     let tableRename: PgTableRename | undefined;
     let addNotNullPlan: AddNotNullColumnPlan | undefined;
+    let addNotNullReplacementSql: string | undefined;
     try {
       const rename = parsePgAlterTableRenameColumn(sql, this.currentSchema);
       tableRename = parsePgAlterTableRenameTable(sql, this.currentSchema);
@@ -739,7 +742,8 @@ export class ProxySession {
             throw sqlError('23502',
               `Cannot add NOT NULL column ${addNotNullPlan.column} without DEFAULT to non-empty table ${addNotNullPlan.schema}.${addNotNullPlan.table}`);
           }
-          translation.sql = addNotNullPlan.addNullableSql;
+          addNotNullReplacementSql = await this.buildAddNotNullReplacement(addNotNullPlan);
+          translation.sql = addNotNullReplacementSql;
         }
       }
       if (config.sql.logText) this.logger.info('Translated SQL', { original: sql, db2: translation.sql });
@@ -751,14 +755,6 @@ export class ProxySession {
     let result: QueryResult<Record<string, unknown>>;
     try {
       result = await this.executeWithSafeRetry(translation, values, maxRows);
-      if (addNotNullPlan) {
-        // Db2 for i rejects ADD COLUMN ... NOT NULL without DEFAULT. On an
-        // empty table, add the column nullable and immediately tighten the
-        // attribute in the same PostgreSQL transaction. If a concurrent row
-        // somehow appears before SET NOT NULL, Db2 rejects the second step
-        // and normal transaction rollback removes the first step as well.
-        await this.currentJob().execute(addNotNullPlan.setNotNullSql);
-      }
       if (tableRename) {
         this.ddlTableDefinitions.renameTable(tableRename);
         this.ddlForeignKeyTypes.renameTable(
@@ -791,7 +787,7 @@ export class ProxySession {
         this.ddlForeignKeyTypes.registerAlterAddColumn(addNotNullPlan.translatedAlterSql, this.currentSchema);
         this.logger.info('PostgreSQL ADD COLUMN NOT NULL without DEFAULT emulated for empty IBM i table', {
           database: this.client.database, schema: addNotNullPlan.schema, table: addNotNullPlan.table,
-          column: addNotNullPlan.column, strategy: 'ADD nullable + SET NOT NULL',
+          column: addNotNullPlan.column, strategy: 'QSYS2.GENERATE_SQL + CREATE OR REPLACE TABLE',
           persistentDefaultAdded: false,
         });
       } else {
@@ -814,9 +810,7 @@ export class ProxySession {
       }
       const mapped = mapDb2Error(error) as Error & { proxySql?: string; proxyDb2Sql?: string; detail?: string };
       mapped.proxySql = sql;
-      mapped.proxyDb2Sql = addNotNullPlan
-        ? `${addNotNullPlan.addNullableSql}; ${addNotNullPlan.setNotNullSql}`
-        : translation.sql;
+      mapped.proxyDb2Sql = addNotNullReplacementSql ?? translation.sql;
       if (isDb2Sql7008(error)) {
         const capabilities = this.currentSchemaCapabilities;
         let journalState: string;
@@ -919,6 +913,67 @@ export class ProxySession {
         format: 0,
       };
     });
+  }
+
+  private async buildAddNotNullReplacement(plan: AddNotNullColumnPlan): Promise<string> {
+    // QSYS2.GENERATE_SQL is used instead of reconstructing a table from a
+    // partial catalog projection. This preserves IBM i-specific column
+    // attributes, system names, constraints, and table options exactly as IBM
+    // i itself would recreate them. All auxiliary output is disabled so the
+    // QTEMP source member contains the table statement only.
+    const callSql =
+      `CALL QSYS2.GENERATE_SQL(` +
+      `${quoteDb2String(plan.table)}, ${quoteDb2String(plan.schema)}, 'TABLE', ` +
+      `REPLACE_OPTION => '1', STATEMENT_FORMATTING_OPTION => '0', ` +
+      `DROP_OPTION => '0', COMMENT_OPTION => '0', LABEL_OPTION => '0', HEADER_OPTION => '0', ` +
+      `TRIGGER_OPTION => '0', CONSTRAINT_OPTION => '2', SYSTEM_NAME_OPTION => '1', ` +
+      `PRIVILEGES_OPTION => '0', CREATE_OR_REPLACE_OPTION => '1', ` +
+      `ACTIVATE_ACCESS_CONTROL_OPTION => '0', MASK_AND_PERMISSION_OPTION => '0', ` +
+      `QUALIFIED_NAME_OPTION => '0', ADDITIONAL_INDEX_OPTION => '0', TEMPORAL_OPTION => '0')`;
+
+    let source: QueryResult<Record<string, unknown>>;
+    try {
+      // With the default QTEMP/Q_GENSQL/Q_GENSQL output, IBM i also returns
+      // the generated source as the CALL result set. Prefer it directly; the
+      // fallback SELECT keeps compatibility with drivers that consume the CALL
+      // result set differently.
+      source = await this.executePaged(callSql, [], 0);
+      if (!source.data.some((row) => caseInsensitiveValue(row, 'SRCDTA') !== undefined)) {
+        source = await this.executePaged(
+          'SELECT SRCSEQ, SRCDTA FROM QTEMP.Q_GENSQL ORDER BY SRCSEQ', [], 0,
+        );
+      }
+    } catch (error) {
+      const mapped = mapDb2Error(error) as Error & { detail?: string };
+      mapped.detail =
+        `The proxy needs QSYS2.GENERATE_SQL to safely emulate PostgreSQL ADD COLUMN NOT NULL without DEFAULT on IBM i. ` +
+        `The IBM i service profile must have *EXECUTE and *OBJOPR to library ${plan.schema} and *OBJOPR to table ${plan.table}.`;
+      throw mapped;
+    }
+
+    const text = source.data
+      .map((row) => String(caseInsensitiveValue(row, 'SRCDTA') ?? '').replace(/\s+$/, ''))
+      .join('\n')
+      .trim();
+    const generated = splitSimpleStatements(text)
+      .find((statement) => /^\s*CREATE\s+OR\s+REPLACE\s+TABLE\b/i.test(statement));
+    if (!generated) {
+      const error = sqlError('0A000',
+        `QSYS2.GENERATE_SQL did not return a usable CREATE OR REPLACE TABLE statement for ${plan.schema}.${plan.table}`);
+      (error as Error & { detail?: string }).detail =
+        `Read ${source.data.length} source records from QTEMP.Q_GENSQL. The proxy will not guess the existing table definition.`;
+      throw error;
+    }
+
+    const replacement = buildCreateOrReplaceAddColumn(generated, plan, this.currentSchema);
+    if (!replacement) {
+      const error = sqlError('0A000',
+        `Cannot safely inject column ${plan.column} into the generated definition for ${plan.schema}.${plan.table}`);
+      (error as Error & { detail?: string }).detail =
+        'The generated DDL did not identify the same table or already contained the requested column. No table change was attempted.';
+      throw error;
+    }
+    return replacement;
   }
 
   private async executeWithSafeRetry(translation: Translation, parameters: unknown[], maxRows: number): Promise<QueryResult<Record<string, unknown>>> {
@@ -1224,6 +1279,20 @@ export class ProxySession {
       return renderSqlAlchemyRelationOid(target ? { oid: tableOid(target.schema, target.name), name: target.name } : undefined);
     }
 
+    if (request.kind === 'tableComments') {
+      if (hasBindParameters && parameters.length === 0) return renderSqlAlchemyTableComments([]);
+      const selected = requestedNames.length > 0
+        ? relations.filter((row) => requestedNames.some((name) => sameSqlIdentifier(name, row.name)))
+        : relations;
+      return renderSqlAlchemyTableComments(selected);
+    }
+
+    if (request.kind === 'checkConstraints') {
+      if (hasBindParameters && parameters.length === 0) return renderSqlAlchemyCheckConstraints([]);
+      const selectedNames = requestedNames.length > 0 ? requestedNames : tableRows.map((row) => row.name);
+      return renderSqlAlchemyCheckConstraints(selectedNames);
+    }
+
     if (request.kind === 'columns') {
       if (hasBindParameters && parameters.length === 0) return renderSqlAlchemyColumns('', []);
       const selectedNames = requestedNames.length > 0 ? requestedNames : relations.map((row) => row.name);
@@ -1249,7 +1318,18 @@ export class ProxySession {
       const selected = tableRows.filter((row) => requestedOids.size === 0 || requestedOids.has(tableOid(row.schema, row.name)));
       const tableIndexes = [] as Array<{ tableOid: number; indexes: IbmiIndexRow[] }>;
       for (const table of selected) {
-        tableIndexes.push({ tableOid: tableOid(table.schema, table.name), indexes: await this.fetchIbmiIndexes(schemaName, table.name) });
+        const indexes = await this.fetchIbmiIndexes(schemaName, table.name);
+        const unresolved = indexes.filter((index) => index.columnCount > 0 && index.columns.length === 0);
+        if (unresolved.length > 0) {
+          this.logger.warn('Omitting IBM i indexes with unresolved key columns from SQLAlchemy reflection', {
+            database: this.client.database, schema: schemaName, table: table.name,
+            indexes: unresolved.map((index) => index.name),
+          });
+        }
+        tableIndexes.push({
+          tableOid: tableOid(table.schema, table.name),
+          indexes: indexes.filter((index) => index.columnCount === 0 || index.columns.length > 0),
+        });
       }
       const result = renderSqlAlchemyIndexes(tableIndexes);
       this.logger.debug('SQLAlchemy index reflection served from IBM i', {
@@ -1420,23 +1500,55 @@ export class ProxySession {
     if (!this.inTransaction) await this.currentJob().execute('COMMIT');
     let rows = this.mapIbmiIndexRows(result.data);
 
-    // QSYS2.SYSINDEXES is the SQL CREATE INDEX catalog. If it is empty, use
-    // QSYS2.SYSTABLEINDEXSTAT, which also reports DDS logical-file access
-    // paths. Constraint access paths are intentionally excluded by that query
-    // because pgAdmin exposes constraints in separate browser collections.
-    if (rows.length === 0) {
+    // QSYS2.SYSINDEXES is the authoritative SQL CREATE INDEX catalog, but
+    // SYSTABLEINDEXSTAT can have the key-column list earlier/more consistently
+    // than the LEFT JOIN projection above. Query it not only when SYSINDEXES is
+    // empty, but also when an index header has a positive key count and no
+    // COLUMN_NAMES. This avoids emitting a malformed empty PostgreSQL
+    // int2vector and also prevents indexes from disappearing in pgAdmin/
+    // SQLAlchemy merely because one IBM i service returned partial metadata.
+    const needsNativeStats = rows.length === 0
+      || rows.some((row) => row.columnCount > 0 && row.columns.length === 0);
+    if (needsNativeStats) {
       try {
         const native = await this.executePaged(IBMI_NATIVE_INDEX_CATALOG_SQL, [schemaName, tableName], 0);
         if (!this.inTransaction) await this.currentJob().execute('COMMIT');
-        rows = this.mapIbmiIndexRows(native.data);
-        if (rows.length > 0) {
-          this.logger.info('Using IBM i table index statistics fallback for pgAdmin Indexes', {
-            schema: schemaName, table: tableName, indexCount: rows.length,
+        const nativeRows = this.mapIbmiIndexRows(native.data);
+        if (rows.length === 0) {
+          rows = nativeRows;
+          if (rows.length > 0) {
+            this.logger.info('Using IBM i table index statistics fallback for Indexes', {
+              schema: schemaName, table: tableName, indexCount: rows.length,
+            });
+          }
+        } else if (nativeRows.length > 0) {
+          const byName = new Map(nativeRows.map((row) => [
+            `${row.indexSchema.toUpperCase()}\u0000${row.name.toUpperCase()}`,
+            row,
+          ]));
+          let repaired = 0;
+          rows = rows.map((row) => {
+            if (row.columnCount <= 0 || row.columns.length > 0) return row;
+            const supplemental = byName.get(`${row.indexSchema.toUpperCase()}\u0000${row.name.toUpperCase()}`);
+            if (!supplemental || supplemental.columns.length === 0) return row;
+            repaired += 1;
+            return {
+              ...row,
+              columns: supplemental.columns,
+              filterDefinition: row.filterDefinition ?? supplemental.filterDefinition,
+              columnCount: row.columnCount || supplemental.columnCount,
+            };
           });
+          if (repaired > 0) {
+            this.logger.debug('Completed IBM i index key metadata from SYSTABLEINDEXSTAT', {
+              schema: schemaName, table: tableName, repairedIndexes: repaired,
+            });
+          }
         }
       } catch (error) {
-        // Do not break pgAdmin browsing if the broader service is unavailable;
-        // preserve the authoritative (empty) SYSINDEXES result instead.
+        // Do not break browsing/reflection if the broader service is
+        // unavailable; preserve SYSINDEXES and let the renderer omit only
+        // still-incomplete rows where PostgreSQL cannot encode them safely.
         this.logger.warn('IBM i table index statistics fallback query failed', {
           schema: schemaName, table: tableName,
           error: String((error as Error)?.message ?? error),
@@ -1770,6 +1882,10 @@ function splitSimpleStatements(sql: string): string[] {
   const tail = sql.slice(start).trim();
   if (tail) statements.push(tail);
   return statements;
+}
+
+function quoteDb2String(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
 }
 
 function quoteDb2Identifier(identifier: string): string {

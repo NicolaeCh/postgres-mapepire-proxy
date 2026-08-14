@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.34 - 2026-08-14
+
+- Replace the 0.1.33 empty-table `ADD COLUMN ... NOT NULL` emulation after live IBM i returned `SQL0952 / SQLSTATE 57014` on `ALTER COLUMN ... SET NOT NULL`.
+- Safely emulate that PostgreSQL DDL by proving the table empty, asking `QSYS2.GENERATE_SQL` for the exact current `CREATE OR REPLACE TABLE` definition with constraints embedded, injecting the new column, and executing the resulting replacement definition. No `SET NOT NULL`, synthetic persistent default, or `DROP DEFAULT` path is used.
+- Fail safely instead of guessing when `QSYS2.GENERATE_SQL` cannot be used; the IBM i service profile needs `*EXECUTE`/`*OBJOPR` to the library and `*OBJOPR` to the table.
+- Fix SQLAlchemy table-comment reflection so `(relname, description)` is returned instead of misclassifying the query as the one-column relation-name family; this addresses `not enough values to unpack (expected 2, got 1)` during reflected unique-constraint migrations.
+- Distinguish SQLAlchemy CHECK-constraint reflection from foreign-key reflection when both use `pg_get_constraintdef()`, preserving the expected four-column CHECK result shape.
+- Repair incomplete IBM i index-key metadata from `QSYS2.SYSTABLEINDEXSTAT`; if an index still has a positive key count but no resolvable key names, omit that incomplete reflection row rather than emit an empty PostgreSQL `int2vector` that psycopg/SQLAlchemy attempts to decode with `int('')`.
+- Keep PostgreSQL advisory-lock semantics unchanged. The 0.1.33 logs show one session successfully acquiring the ContextForge lock; the repeated `false` results are contention while that migration holder is still running/failing, not evidence that no lock can be acquired.
+- Add/strengthen build regressions for exact CREATE OR REPLACE column injection, table-comment/CHECK reflection shapes, and unresolved index vectors.
+
 ## 0.1.33 - 2026-08-14
 
 - Emulate PostgreSQL `ALTER TABLE ... ADD COLUMN ... NOT NULL` without `DEFAULT` on empty tables using an IBM i-safe two-step `ADD` nullable + `ALTER COLUMN ... SET NOT NULL` sequence in the same transaction; no synthetic persistent default is introduced.

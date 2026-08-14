@@ -4,6 +4,8 @@ import {
   pgVisibleIdentifier,
   renderSqlAlchemyColumns,
   renderSqlAlchemyIndexes,
+  renderSqlAlchemyTableComments,
+  renderSqlAlchemyCheckConstraints,
 } from '../src/sql/sqlalchemy-reflection.js';
 import type { IbmiColumnRow, IbmiIndexRow } from '../src/sql/pgadmin-ibmi-table-child.js';
 
@@ -38,8 +40,20 @@ describe('SQLAlchemy PostgreSQL reflection classifier', () => {
       FROM pg_catalog.pg_index JOIN pg_catalog.pg_class ON pg_catalog.pg_index.indexrelid=pg_catalog.pg_class.oid`)?.kind).toBe('indexes');
 
     expect(classifySqlAlchemyReflectionQuery(`SELECT pg_catalog.pg_class.relname, pg_catalog.pg_constraint.conname,
-      pg_catalog.pg_get_constraintdef(pg_catalog.pg_constraint.oid,true)
-      FROM pg_catalog.pg_class LEFT JOIN pg_catalog.pg_constraint ON pg_catalog.pg_class.oid=pg_catalog.pg_constraint.conrelid`)?.kind).toBe('foreignKeys');
+      pg_catalog.pg_get_constraintdef(pg_catalog.pg_constraint.oid,true), nsp_ref.nspname
+      FROM pg_catalog.pg_class LEFT JOIN pg_catalog.pg_constraint ON pg_catalog.pg_class.oid=pg_catalog.pg_constraint.conrelid
+      LEFT JOIN pg_catalog.pg_class cls_ref ON cls_ref.oid=pg_catalog.pg_constraint.confrelid
+      LEFT JOIN pg_catalog.pg_namespace nsp_ref ON cls_ref.relnamespace=nsp_ref.oid`)?.kind).toBe('foreignKeys');
+
+    expect(classifySqlAlchemyReflectionQuery(`SELECT pg_catalog.pg_class.relname, pg_catalog.pg_constraint.conname,
+      pg_catalog.pg_get_constraintdef(pg_catalog.pg_constraint.oid,true), pg_catalog.pg_description.description
+      FROM pg_catalog.pg_class LEFT JOIN pg_catalog.pg_constraint ON pg_catalog.pg_class.oid=pg_catalog.pg_constraint.conrelid
+      LEFT JOIN pg_catalog.pg_description ON pg_catalog.pg_description.objoid=pg_catalog.pg_constraint.oid`)?.kind).toBe('checkConstraints');
+
+    expect(classifySqlAlchemyReflectionQuery(`SELECT pg_catalog.pg_class.relname, pg_catalog.pg_description.description
+      FROM pg_catalog.pg_class LEFT JOIN pg_catalog.pg_description ON pg_catalog.pg_description.objoid=pg_catalog.pg_class.oid
+      JOIN pg_catalog.pg_namespace ON pg_catalog.pg_namespace.oid=pg_catalog.pg_class.relnamespace
+      WHERE pg_catalog.pg_class.relkind = ANY (ARRAY[$1::VARCHAR])`)?.kind).toBe('tableComments');
 
     expect(classifySqlAlchemyReflectionQuery(`SELECT attr.conrelid, array_agg(attr.attname ORDER BY attr.ord) AS cols,
       attr.conname, min(attr.indnkeyatts) AS indnkeyatts FROM
@@ -80,6 +94,28 @@ describe('SQLAlchemy IBM i reflection rendering', () => {
     expect(result.fields[4]?.typeOid).toBe(22); // PostgreSQL int2vector, not int2[]
     expect(result.rows[0]?.[4]).toBe('0');
     expect(result.rows[0]?.[10]).toBe('{"visibility"}');
+  });
+
+  it('never emits an empty int2vector for an index whose keys are unresolved', () => {
+    const indexes: IbmiIndexRow[] = [{
+      schema: 'MCPDATA', table: 'TOOLS', indexSchema: 'MCPDATA',
+      name: 'IX_TOOLS_EMAIL', owner: 'MAPESVC', unique: false,
+      columnCount: 1, longComment: null, text: null, columns: [], filterDefinition: null,
+    }];
+    const result = renderSqlAlchemyIndexes([{ tableOid: 222, indexes }]);
+    expect(result.rows).toEqual([]);
+  });
+
+  it('renders SQLAlchemy comment/check reflection with stable positional shapes', () => {
+    const comments = renderSqlAlchemyTableComments([{
+      schema: 'MCPDATA', name: 'TOOLS', owner: 'MAPESVC', type: 'T', text: 'tool rows', longComment: null, columnCount: 2,
+    }]);
+    expect(comments.fields.map((f) => f.name)).toEqual(['relname', 'description']);
+    expect(comments.rows).toEqual([['tools', 'tool rows']]);
+
+    const checks = renderSqlAlchemyCheckConstraints(['TOOLS']);
+    expect(checks.fields.map((f) => f.name)).toEqual(['relname', 'conname', 'src', 'description']);
+    expect(checks.rows).toEqual([['tools', null, null, null]]);
   });
 });
 

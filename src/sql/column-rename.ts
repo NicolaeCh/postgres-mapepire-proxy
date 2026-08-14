@@ -34,8 +34,6 @@ export interface AddNotNullColumnPlan {
   definition: string;
   translatedAlterSql: string;
   probeSql: string;
-  addNullableSql: string;
-  setNotNullSql: string;
 }
 
 interface StoredTableDefinition {
@@ -122,11 +120,12 @@ export function isAlterTableAddNotNullNoDefault(sql: string, currentSchema: stri
 /**
  * Plan PostgreSQL ADD COLUMN ... NOT NULL without DEFAULT for Db2 for i.
  *
- * PostgreSQL permits this when the target table is empty. Db2 for i requires
- * DEFAULT when NOT NULL appears in the ADD COLUMN definition, but it permits
- * a nullable ADD followed by ALTER COLUMN ... SET NOT NULL. ProxySession
- * performs an emptiness probe first, then executes both DDL statements in the
- * caller's transaction. No synthetic persistent default is introduced.
+ * PostgreSQL permits this when the target table is empty. Db2 for i does not
+ * permit the equivalent ADD COLUMN form without a default, and tightening a
+ * nullable column with SET NOT NULL can raise an IBM i inquiry message that
+ * cannot be answered over the Mapepire/JDBC path. ProxySession therefore
+ * proves the table is empty, obtains its exact CREATE OR REPLACE definition
+ * from QSYS2.GENERATE_SQL, injects the new column, and replaces the table.
  */
 export function planAlterTableAddNotNullNoDefault(
   sql: string, currentSchema: string,
@@ -137,8 +136,6 @@ export function planAlterTableAddNotNullNoDefault(
   if (/\bDEFAULT\b/i.test(add.definition)) return undefined;
   if (/\b(?:GENERATED|IDENTITY)\b/i.test(add.definition)) return undefined;
 
-  const nullableDefinition = add.definition.replace(/\s*\bNOT\s+NULL\b\s*/i, ' ').replace(/\s+/g, ' ').trim();
-  if (!nullableDefinition) return undefined;
   const relation = `${quoteIdentifier(add.schema)}.${quoteIdentifier(add.table)}`;
   return {
     schema: add.schema,
@@ -148,9 +145,39 @@ export function planAlterTableAddNotNullNoDefault(
     definition: add.definition,
     translatedAlterSql: sql,
     probeSql: `SELECT 1 AS PROXY_ROW FROM ${relation} FETCH FIRST 1 ROW ONLY`,
-    addNullableSql: `ALTER TABLE ${relation} ADD COLUMN ${add.columnSql} ${nullableDefinition}`,
-    setNotNullSql: `ALTER TABLE ${relation} ALTER COLUMN ${add.columnSql} SET NOT NULL`,
   };
+}
+
+/**
+ * Add the planned column to an exact IBM i CREATE OR REPLACE TABLE statement.
+ *
+ * The input must describe the same table as the ALTER plan. The function keeps
+ * all generated table attributes and constraints intact, inserts the column
+ * before table constraints, and relies on IBM i CREATE OR REPLACE's default
+ * ON REPLACE PRESERVE ALL ROWS semantics.
+ */
+export function buildCreateOrReplaceAddColumn(
+  createSql: string,
+  plan: AddNotNullColumnPlan,
+  currentSchema: string,
+): string | undefined {
+  const parsed = parseCreateTableStructure(createSql, currentSchema);
+  if (!parsed) return undefined;
+  if (!sameIdentifier(parsed.schema, plan.schema) || !sameIdentifier(parsed.table, plan.table)) return undefined;
+
+  for (const definition of parsed.definitions) {
+    const column = parseColumnDefinition(definition);
+    if (column && sameIdentifier(normalizeIdentifier(column.nameSql), plan.column)) return undefined;
+  }
+
+  const definitions = [...parsed.definitions];
+  const firstConstraint = definitions.findIndex((definition) => /^\s*(?:CONSTRAINT|PRIMARY|UNIQUE|FOREIGN|CHECK|EXCLUDE)\b/i.test(definition));
+  const insertAt = firstConstraint >= 0 ? firstConstraint : definitions.length;
+  definitions.splice(insertAt, 0, `${plan.columnSql} ${plan.definition}`);
+
+  const prefix = parsed.prefix.replace(/^\s*CREATE\s+(?:OR\s+REPLACE\s+)?/i, 'CREATE OR REPLACE ');
+  const suffix = parsed.suffix.replace(/;\s*$/, '').trim();
+  return `${prefix}(${definitions.join(',')})${suffix ? ` ${suffix}` : ''}`.trim();
 }
 
 export class DdlTableDefinitionRegistry {
@@ -287,7 +314,7 @@ interface ParsedCreateTable {
   suffix: string;
 }
 
-function parseCreateTable(sql: string, currentSchema: string): ParsedCreateTable | undefined {
+function parseCreateTableStructure(sql: string, currentSchema: string): ParsedCreateTable | undefined {
   const match = /^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:(?:GLOBAL|LOCAL)\s+TEMPORARY\s+|TEMPORARY\s+|TEMP\s+|UNLOGGED\s+)?TABLE\s+((?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$#@]*)(?:\s*\.\s*(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$#@]*))?)/i.exec(sql);
   if (!match) return undefined;
   const open = firstUnquotedChar(sql, '(', match.index + match[0].length);
@@ -295,20 +322,23 @@ function parseCreateTable(sql: string, currentSchema: string): ParsedCreateTable
   const close = matchingParen(sql, open);
   if (close < 0) return undefined;
   const qualified = splitQualifiedName(match[1]!, currentSchema);
-  const suffix = sql.slice(close + 1).trim();
-  // The registry only emulates rename from ordinary CREATE TABLE definitions.
-  // ON REPLACE and exotic PostgreSQL table suffixes must not be duplicated.
-  const cleanSuffix = suffix.replace(/^ON\s+REPLACE\s+PRESERVE(?:\s+ALL)?\s+ROWS\s*$/i, '').trim();
-  if (cleanSuffix) return undefined;
   return {
     schema: qualified.schema,
     table: qualified.table,
-    prefix: canonicalCreatePrefix(sql.slice(0, open)),
+    prefix: sql.slice(0, open).trimEnd(),
     open,
     close,
     definitions: splitDefinitionList(sql.slice(open + 1, close)),
-    suffix: '',
+    suffix: sql.slice(close + 1).trim(),
   };
+}
+
+function parseCreateTable(sql: string, currentSchema: string): ParsedCreateTable | undefined {
+  const parsed = parseCreateTableStructure(sql, currentSchema);
+  if (!parsed) return undefined;
+  const cleanSuffix = parsed.suffix.replace(/^ON\s+REPLACE\s+PRESERVE(?:\s+ALL)?\s+ROWS\s*;?$/i, '').trim();
+  if (cleanSuffix) return undefined;
+  return { ...parsed, prefix: canonicalCreatePrefix(parsed.prefix), suffix: '' };
 }
 
 function canonicalCreatePrefix(prefix: string): string {
@@ -396,6 +426,10 @@ function replaceIdentifierReferences(text: string, oldNormalized: string, newSql
     out += ch; i++;
   }
   return out;
+}
+
+function sameIdentifier(a: string, b: string): boolean {
+  return a === b || a.toUpperCase() === b.toUpperCase();
 }
 
 function quoteIdentifier(value: string): string {

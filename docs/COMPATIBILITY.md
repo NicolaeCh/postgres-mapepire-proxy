@@ -118,7 +118,7 @@ PostgreSQL `JSON`/`JSONB` storage is mapped to UTF-8 `CLOB(2G)`. Simple PostgreS
 Db2 for i does not permit LOB/XML/DATALINK columns as direct index keys. For conservative plain-column, non-unique CREATE INDEX statements that target such columns, `SQL_UNSUPPORTED_NONUNIQUE_LOB_INDEX_POLICY=skip` (default) acknowledges the PostgreSQL performance hint and logs that no physical IBM i index was created. `error` selects strict behavior. UNIQUE indexes are always rejected rather than skipped because uniqueness changes data validity. Complex expression/partial/operator-class indexes are outside this fallback and continue to normal backend validation.
 ## 0.1.33 empty-table NOT NULL, index-vector reflection and table rename
 
-PostgreSQL `ALTER TABLE ... ADD COLUMN ... NOT NULL` without a default is supported when the target table is empty. The proxy probes for rows and then executes a nullable `ADD COLUMN` followed by `ALTER COLUMN ... SET NOT NULL` in the same backend transaction. It does not invent a persistent default. A non-empty table is rejected with SQLSTATE `23502`.
+0.1.33 initially handled PostgreSQL `ALTER TABLE ... ADD COLUMN ... NOT NULL` without a default using nullable ADD + SET NOT NULL. Live IBM i testing exposed SQL0952 on that tightening step; 0.1.34 supersedes the implementation. A non-empty table remains rejected with SQLSTATE `23502`.
 
 SQLAlchemy PostgreSQL reflection receives `pg_index.indoption` using PostgreSQL `int2vector` OID 22 and space-separated vector text. This matches SQLAlchemy's native PostgreSQL result processor and avoids psycopg decoding the value to a Python array before SQLAlchemy processes it.
 
@@ -126,3 +126,9 @@ PostgreSQL `ALTER TABLE old RENAME TO new` is translated to IBM i `RENAME TABLE 
 
 The default IBM Toolbox concurrent-access setting is `MAPEPIRE_JDBC_CONCURRENT_ACCESS_RESOLUTION=1` (`use currently committed`) to improve eligible read-only `READ COMMITTED` probes. This does not guarantee that a query can read an object that has never had a committed version.
 
+
+## 0.1.34 ContextForge migration/reflection hardening
+
+For an empty target table, PostgreSQL `ADD COLUMN ... NOT NULL` without a default is mapped by obtaining the exact current table DDL from `QSYS2.GENERATE_SQL`, adding the requested column to that definition, and executing `CREATE OR REPLACE TABLE`. This avoids the IBM i interactive `SET NOT NULL` conversion path and does not fabricate a persistent default.
+
+SQLAlchemy table-comment reflection returns `(relname, description)`, CHECK reflection is separated from the foreign-key `pg_get_constraintdef()` family, and incomplete index headers no longer produce invalid empty `int2vector` values.

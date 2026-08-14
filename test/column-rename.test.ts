@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DdlTableDefinitionRegistry, isAlterTableAddNotNullNoDefault,
+import { buildCreateOrReplaceAddColumn, DdlTableDefinitionRegistry, isAlterTableAddNotNullNoDefault,
   planAlterTableAddNotNullNoDefault, parsePgAlterTableRenameColumn, parsePgAlterTableRenameTable } from '../src/sql/column-rename.js';
 
 describe('IBM i column rename emulation', () => {
@@ -25,14 +25,16 @@ describe('IBM i column rename emulation', () => {
 
 
 describe('ALTER TABLE compatibility additions', () => {
-  it('plans NOT NULL without DEFAULT as nullable ADD plus SET NOT NULL', () => {
+  it('plans NOT NULL without DEFAULT through exact CREATE OR REPLACE DDL', () => {
     const sql = 'ALTER TABLE OAUTH_TOKENS ADD COLUMN APP_USER_EMAIL VARCHAR(255) NOT NULL';
     expect(isAlterTableAddNotNullNoDefault(sql, 'MCPDATA')).toBe(true);
     const plan = planAlterTableAddNotNullNoDefault(sql, 'MCPDATA');
     expect(plan?.probeSql).toBe('SELECT 1 AS PROXY_ROW FROM "MCPDATA"."OAUTH_TOKENS" FETCH FIRST 1 ROW ONLY');
-    expect(plan?.addNullableSql).toBe('ALTER TABLE "MCPDATA"."OAUTH_TOKENS" ADD COLUMN APP_USER_EMAIL VARCHAR(255)');
-    expect(plan?.setNotNullSql).toBe('ALTER TABLE "MCPDATA"."OAUTH_TOKENS" ALTER COLUMN APP_USER_EMAIL SET NOT NULL');
-    expect(plan?.addNullableSql).not.toMatch(/DEFAULT/i);
+    const generated = 'CREATE OR REPLACE TABLE "MCPDATA"."OAUTH_TOKENS" (ID VARCHAR(36) NOT NULL, CONSTRAINT PK_OAUTH PRIMARY KEY (ID)) RCDFMT OAUTHTOK';
+    const replacement = buildCreateOrReplaceAddColumn(generated, plan!, 'MCPDATA');
+    expect(replacement).toContain('APP_USER_EMAIL VARCHAR(255) NOT NULL,CONSTRAINT PK_OAUTH');
+    expect(replacement).toContain('RCDFMT OAUTHTOK');
+    expect(replacement).not.toMatch(/SET\s+NOT\s+NULL|WITH\s+DEFAULT|DROP\s+DEFAULT/i);
   });
 
   it('maps PostgreSQL table rename to IBM i RENAME TABLE', () => {

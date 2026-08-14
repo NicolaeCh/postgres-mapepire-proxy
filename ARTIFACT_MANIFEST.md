@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.33 reference implementation**
+Version: **0.1.34 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.33 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.33.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.34.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 
@@ -177,3 +177,10 @@ See `docs/VALIDATION.md`. This build environment could not resolve npm packages 
 - PostgreSQL table rename mapping to IBM i `RENAME TABLE`.
 - IBM Toolbox currently-committed concurrency default for eligible read-only `READ COMMITTED` probes.
 
+
+## 0.1.34 additions
+
+- IBM i-safe PostgreSQL empty-table `ADD COLUMN ... NOT NULL` emulation through `QSYS2.GENERATE_SQL` plus `CREATE OR REPLACE TABLE`, superseding 0.1.33's `SET NOT NULL` strategy.
+- SQLAlchemy table-comment and CHECK-constraint reflection shape fixes for reflected Alembic migrations.
+- Supplemental IBM i index-key lookup plus malformed-empty-`int2vector` suppression.
+- `docs/BUILD_FIX_0.1.34.md` with the live failure analysis, authority requirements, and retest checklist.

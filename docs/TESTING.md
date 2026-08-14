@@ -139,7 +139,13 @@ Run `node scripts/verify-postgres-alter-table.mjs` after `npm run build`.
 The image build runs `verify-contextforge-ddl.mjs` against the Alembic JSONB tags shape and `verify-lob-index-compat.mjs` against the simple non-unique/unique index policy. Verify at runtime that a non-unique index on a CLOB-backed column logs `Skipped PostgreSQL non-unique index unsupported by Db2 for i LOB key rules` with `physicalIndexCreated=false`; a UNIQUE LOB-backed index must return SQLSTATE `0A000`.
 ## PostgreSQL ADD NOT NULL and SQLAlchemy int2vector regression (0.1.33)
 
-A successful image build must execute both `verify-postgres-alter-table.mjs` and `verify-sqlalchemy-reflection.mjs`. The former verifies that an empty-table PostgreSQL ADD NOT NULL/no-default operation is planned as an IBM i nullable ADD plus SET NOT NULL with no persistent default. The latter verifies that `pg_index.indoption` is RowDescription OID 22 (`int2vector`) with space-separated text rather than `int2[]`.
+A successful image build must execute both `verify-postgres-alter-table.mjs` and `verify-sqlalchemy-reflection.mjs`. The 0.1.33 verifier originally checked a nullable ADD plus SET NOT NULL; that strategy is superseded by 0.1.34 after live IBM i returned SQL0952. The latter verifies that `pg_index.indoption` is RowDescription OID 22 (`int2vector`) with space-separated text rather than `int2[]`.
 
 For a live ContextForge migration, the prior `'list' object has no attribute 'split'` index/constraint reflection warnings should disappear. The OAuth migration should log `PostgreSQL ADD COLUMN NOT NULL without DEFAULT emulated for empty IBM i table`.
 
+
+## ContextForge 0.1.34 regression
+
+A successful image build must run `verify-postgres-alter-table.mjs` and `verify-sqlalchemy-reflection.mjs`. The ALTER verifier now requires the generated replacement DDL to contain the requested `NOT NULL` column while containing none of `SET NOT NULL`, `WITH DEFAULT`, or `DROP DEFAULT`. The SQLAlchemy reflection verifier covers table-comment positional shape, CHECK-constraint positional shape, supplemental index-key recovery, and suppression of malformed empty `int2vector` values.
+
+For a live ContextForge v1.0.7 migration, verify that the prior `invalid literal for int() with base 10: ''`, `not enough values to unpack (expected 2, got 1)`, and `SQL0952` on the OAuth `APP_USER_EMAIL` migration no longer occur.

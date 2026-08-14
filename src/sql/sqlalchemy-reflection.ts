@@ -12,6 +12,8 @@ export type SqlAlchemyReflectionRequest =
   | { kind: 'columns' }
   | { kind: 'indexes' }
   | { kind: 'foreignKeys' }
+  | { kind: 'checkConstraints' }
+  | { kind: 'tableComments' }
   | { kind: 'keyConstraints' };
 
 export interface IbmiForeignKeyRow {
@@ -114,7 +116,12 @@ export function classifySqlAlchemyReflectionQuery(sql: string): SqlAlchemyReflec
 
   if (/\b(?:pg_catalog\.)?pg_constraint\b/i.test(s)
       && /\bpg_get_constraintdef\s*\(/i.test(s)) {
-    return { kind: 'foreignKeys' };
+    // SQLAlchemy uses pg_get_constraintdef() for both foreign-key and CHECK
+    // reflection. The FK query also resolves confrelid through cls_ref/nsp_ref;
+    // the CHECK query does not. Returning the FK five-column shape for CHECK
+    // reflection corrupts SQLAlchemy's positional row unpacking.
+    if (/\b(?:confrelid|cls_ref|nsp_ref)\b/i.test(s)) return { kind: 'foreignKeys' };
+    return { kind: 'checkConstraints' };
   }
 
   if (/\b(?:pg_catalog\.)?pg_attribute\b/i.test(s)
@@ -133,6 +140,17 @@ export function classifySqlAlchemyReflectionQuery(sql: string): SqlAlchemyReflec
       && /\b(?:pg_catalog\.)?pg_class\.relname\s*=\s*/i.test(s)
       && !/\b(?:pg_catalog\.)?pg_(?:attribute|index|constraint)\b/i.test(s)) {
     return { kind: 'relationOidByName' };
+  }
+
+  // SQLAlchemy table-comment reflection selects exactly
+  // (pg_class.relname, pg_description.description). It otherwise has the same
+  // pg_class/pg_namespace/relkind skeleton as get_table_names(), so it must be
+  // recognized before the generic one-column relationNames family.
+  if (/\b(?:pg_catalog\.)?pg_description\b/i.test(s)
+      && /\b(?:pg_catalog\.)?pg_description\.description\b/i.test(s)
+      && /\b(?:pg_catalog\.)?pg_class\.relname\b/i.test(s)
+      && !/\b(?:pg_catalog\.)?pg_constraint\b/i.test(s)) {
+    return { kind: 'tableComments' };
   }
 
   if (/\bselect\b[\s\S]*\b(?:pg_catalog\.)?pg_class\.relname\b/i.test(s)
@@ -220,6 +238,11 @@ export function renderSqlAlchemyIndexes(
   for (const entry of tableIndexes) {
     for (const index of entry.indexes) {
       const columns = index.columns.map(pgVisibleIdentifier);
+      // PostgreSQL int2vector has no representation for an unknown key. When
+      // IBM i exposes an index header before SYSTABLEINDEXSTAT.COLUMN_NAMES is
+      // populated, emitting '' makes psycopg attempt int('') and abort
+      // reflection. Omit that incomplete metadata row until its keys resolve.
+      if (index.columnCount > 0 && columns.length === 0) continue;
       rows.push([
         entry.tableOid,
         pgVisibleIdentifier(index.name),
@@ -229,7 +252,7 @@ export function renderSqlAlchemyIndexes(
         null,
         'btree',
         index.filterDefinition,
-        index.columnCount || columns.length,
+        columns.length,
         false,
         pgTextArray(columns),
         pgBoolArray(columns.map(() => false)),
@@ -238,6 +261,23 @@ export function renderSqlAlchemyIndexes(
       ]);
     }
   }
+  return { fields, rows, tag: `SELECT ${rows.length}` };
+}
+
+export function renderSqlAlchemyTableComments(rows: IbmiTableRow[]): SyntheticResult {
+  const fields: FieldDescription[] = [nameField('relname'), text('description')];
+  const data = rows.map((row) => [pgVisibleIdentifier(row.name), row.longComment ?? row.text]);
+  return { fields, rows: data, tag: `SELECT ${data.length}` };
+}
+
+export function renderSqlAlchemyCheckConstraints(tableNames: string[]): SyntheticResult {
+  const fields: FieldDescription[] = [
+    nameField('relname'), nameField('conname'), text('src'), text('description'),
+  ];
+  // SQLAlchemy groups this bulk-reflection result by relname. A placeholder
+  // row with NULL constraint data tells it that the table was reflected and
+  // simply has no CHECK constraints, matching the PostgreSQL outer-join shape.
+  const rows = tableNames.map((name) => [pgVisibleIdentifier(name), null, null, null]);
   return { fields, rows, tag: `SELECT ${rows.length}` };
 }
 

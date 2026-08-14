@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 
 const { translateSql } = await import('../dist/src/sql/translator.js');
-const { DdlTableDefinitionRegistry, isAlterTableAddNotNullNoDefault, planAlterTableAddNotNullNoDefault, parsePgAlterTableRenameColumn, parsePgAlterTableRenameTable } = await import('../dist/src/sql/column-rename.js');
+const { buildCreateOrReplaceAddColumn, DdlTableDefinitionRegistry, isAlterTableAddNotNullNoDefault, planAlterTableAddNotNullNoDefault, parsePgAlterTableRenameColumn, parsePgAlterTableRenameTable } = await import('../dist/src/sql/column-rename.js');
 const { DdlForeignKeyTypeRegistry } = await import('../dist/src/sql/ddl-foreign-key.js');
 
 const options = {
@@ -115,19 +115,21 @@ assert.ok(txRegistry.planRename(rename, 'IS_ACTIVE'));
 console.log('PostgreSQL column rename -> IBM i CREATE OR REPLACE PRESERVE ROWS compatibility check OK');
 
 // PostgreSQL permits ADD COLUMN NOT NULL without DEFAULT when the target table
-// is empty. Db2 for i rejects that direct ADD form (SQL0109), so the proxy
-// probes for rows, then executes ADD nullable + SET NOT NULL in the same
-// transaction. No exact table-definition registry and no synthetic DEFAULT
-// are required.
+// is empty. Db2 for i cannot safely emulate it with ADD nullable + SET NOT
+// NULL over JDBC/Mapepire, and DROP DEFAULT is not valid for a NOT NULL IBM i
+// column. The proxy therefore combines the exact IBM i-generated table DDL
+// with CREATE OR REPLACE TABLE and injects the requested column.
 const addEmail = tr('ALTER TABLE oauth_tokens ADD COLUMN app_user_email VARCHAR(255) NOT NULL');
 assert.equal(isAlterTableAddNotNullNoDefault(addEmail, 'MCPDATA'), true);
 const addEmailPlan = planAlterTableAddNotNullNoDefault(addEmail, 'MCPDATA');
 assert.ok(addEmailPlan);
 assert.equal(addEmailPlan.probeSql, 'SELECT 1 AS PROXY_ROW FROM "MCPDATA"."OAUTH_TOKENS" FETCH FIRST 1 ROW ONLY');
-assert.equal(addEmailPlan.addNullableSql, 'ALTER TABLE "MCPDATA"."OAUTH_TOKENS" ADD COLUMN APP_USER_EMAIL VARCHAR(255)');
-assert.equal(addEmailPlan.setNotNullSql, 'ALTER TABLE "MCPDATA"."OAUTH_TOKENS" ALTER COLUMN APP_USER_EMAIL SET NOT NULL');
-assert.doesNotMatch(addEmailPlan.addNullableSql, /DEFAULT/i);
-assert.doesNotMatch(addEmailPlan.setNotNullSql, /DEFAULT/i);
+const generatedOauth = 'CREATE OR REPLACE TABLE "MCPDATA"."OAUTH_TOKENS" (ID VARCHAR(36) NOT NULL, CONSTRAINT PK_OAUTH PRIMARY KEY (ID)) RCDFMT OAUTHTOK';
+const oauthReplacement = buildCreateOrReplaceAddColumn(generatedOauth, addEmailPlan, 'MCPDATA');
+assert.ok(oauthReplacement);
+assert.match(oauthReplacement, /APP_USER_EMAIL VARCHAR\(255\) NOT NULL,CONSTRAINT PK_OAUTH/);
+assert.match(oauthReplacement, /RCDFMT OAUTHTOK$/);
+assert.doesNotMatch(oauthReplacement, /SET\s+NOT\s+NULL|WITH\s+DEFAULT|DROP\s+DEFAULT/i);
 
 // SQLAlchemy/Alembic op.rename_table() emits ALTER TABLE old RENAME TO new.
 // IBM i has a native RENAME TABLE statement, so table rename is mapped rather

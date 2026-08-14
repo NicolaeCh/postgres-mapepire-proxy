@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.33 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.33
+podman build -t postgres-mapepire-proxy:0.1.34 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.34
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -199,9 +199,19 @@ ContextForge v1.0.7 serializes database bootstrap with PostgreSQL session adviso
 Alembic migrations can define an unbounded PostgreSQL `VARCHAR` foreign-key column that references a sized `VARCHAR(36)` primary key. The proxy now remembers translated parent-column types during the migration session and rewrites dependent foreign-key columns to the exact Db2 type required by the referenced key before executing the dependent `CREATE TABLE`.
 
 
+## ContextForge migration hardening (0.1.34)
+
+Release 0.1.34 supersedes the 0.1.33 implementation of PostgreSQL `ALTER TABLE ... ADD COLUMN ... NOT NULL` without a default. Live Db2 for i returned `SQL0952` / SQLSTATE `57014` when 0.1.33 tried to tighten the nullable column with `ALTER COLUMN ... SET NOT NULL`. The proxy now verifies that the table is empty, calls `QSYS2.GENERATE_SQL` for IBM i's exact `CREATE OR REPLACE TABLE` definition, injects the requested column before table constraints, and executes that definition. The final column remains `NOT NULL` with no proxy-invented persistent default.
+
+This path intentionally does **not** change IBM i message `CPA32B2` defaults and does not use a temporary default followed by `DROP DEFAULT`. If the service profile cannot run `QSYS2.GENERATE_SQL`, the proxy fails safely rather than reconstructing the table from partial metadata.
+
+SQLAlchemy reflection is also hardened for ContextForge migrations: table comments now return the expected `(relname, description)` shape, CHECK-constraint reflection is no longer confused with foreign-key reflection, and index metadata with unresolved key columns is repaired from `QSYS2.SYSTABLEINDEXSTAT` or omitted until it can be represented as a valid PostgreSQL `int2vector`.
+
+Advisory-lock behavior is unchanged in 0.1.34. A successful `pg_try_advisory_lock()` remains session-scoped and is released by `pg_advisory_unlock()`, `pg_advisory_unlock_all()`, or session close.
+
 ## PostgreSQL empty-table NOT NULL, SQLAlchemy vector reflection and concurrent readers (0.1.33)
 
-Release 0.1.33 adds a general compatibility path for PostgreSQL `ALTER TABLE ... ADD COLUMN ... NOT NULL` without a default. Db2 for i requires a default on that direct ADD form. The proxy first verifies the table is empty, then executes a nullable ADD followed by `ALTER COLUMN ... SET NOT NULL` inside the same PostgreSQL transaction. The final IBM i column therefore has `NOT NULL` and no persistent default, matching PostgreSQL empty-table semantics. A non-empty table is rejected with SQLSTATE `23502`.
+Release 0.1.33 introduced a compatibility path for PostgreSQL `ALTER TABLE ... ADD COLUMN ... NOT NULL` without a default; **0.1.34 supersedes this implementation after live IBM i testing exposed SQL0952 on the SET NOT NULL step**. Db2 for i requires a default on that direct ADD form. The proxy first verifies the table is empty, then executes a nullable ADD followed by `ALTER COLUMN ... SET NOT NULL` inside the same PostgreSQL transaction. The final IBM i column therefore has `NOT NULL` and no persistent default, matching PostgreSQL empty-table semantics. A non-empty table is rejected with SQLSTATE `23502`.
 
 SQLAlchemy index reflection now exposes `pg_index.indoption` as PostgreSQL `int2vector` (OID 22) with space-separated vector text rather than as `int2[]`. This fixes SQLAlchemy/psycopg reflection failures such as `'list' object has no attribute 'split'`. PostgreSQL table rename (`ALTER TABLE old RENAME TO new`) is also mapped to IBM i native `RENAME TABLE`.
 

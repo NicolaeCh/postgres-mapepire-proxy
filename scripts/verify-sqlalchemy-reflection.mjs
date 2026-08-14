@@ -15,7 +15,7 @@ const { tableOid } = await import('../dist/src/sql/pgadmin-ibmi-table.js');
 
 const tables = [
   { TABLE_SCHEMA:'MCPDATA', TABLE_NAME:'A2A_AGENTS', TABLE_OWNER:'MAPESVC', TABLE_TYPE:'T', TABLE_TEXT:null, LONG_COMMENT:null, COLUMN_COUNT:3 },
-  { TABLE_SCHEMA:'MCPDATA', TABLE_NAME:'TOOLS', TABLE_OWNER:'MAPESVC', TABLE_TYPE:'T', TABLE_TEXT:null, LONG_COMMENT:null, COLUMN_COUNT:2 },
+  { TABLE_SCHEMA:'MCPDATA', TABLE_NAME:'TOOLS', TABLE_OWNER:'MAPESVC', TABLE_TYPE:'T', TABLE_TEXT:'tool rows', LONG_COMMENT:null, COLUMN_COUNT:2 },
 ];
 const columns = {
   A2A_AGENTS: [
@@ -30,6 +30,16 @@ const indexes = {
   A2A_AGENTS: [
     { INDEX_SCHEMA:'MCPDATA', INDEX_NAME:'IDX_A2A_AGENTS_NAME', INDEX_OWNER:'MAPESVC', TABLE_SCHEMA:'MCPDATA', TABLE_NAME:'A2A_AGENTS', IS_UNIQUE:'D', COLUMN_COUNT:1, LONG_COMMENT:null, INDEX_TEXT:null, COLUMN_NAMES:'NAME', SEARCH_CONDITION:null },
     { INDEX_SCHEMA:'MCPDATA', INDEX_NAME:'IDX_A2A_AGENTS_ENABLED', INDEX_OWNER:'MAPESVC', TABLE_SCHEMA:'MCPDATA', TABLE_NAME:'A2A_AGENTS', IS_UNIQUE:'D', COLUMN_COUNT:1, LONG_COMMENT:null, INDEX_TEXT:null, COLUMN_NAMES:'ENABLED', SEARCH_CONDITION:null },
+  ],
+  TOOLS: [
+    // Reproduce the 0.1.33 failure: SYSINDEXES sees the index, but the joined
+    // SYSTABLEINDEXSTAT projection has not supplied COLUMN_NAMES yet.
+    { INDEX_SCHEMA:'MCPDATA', INDEX_NAME:'IX_TOOLS_VISIBILITY', INDEX_OWNER:'MAPESVC', TABLE_SCHEMA:'MCPDATA', TABLE_NAME:'TOOLS', IS_UNIQUE:'D', COLUMN_COUNT:1, LONG_COMMENT:null, INDEX_TEXT:null, COLUMN_NAMES:null, SEARCH_CONDITION:null },
+  ],
+};
+const nativeIndexes = {
+  TOOLS: [
+    { INDEX_SCHEMA:'MCPDATA', INDEX_NAME:'IX_TOOLS_VISIBILITY', INDEX_OWNER:'', TABLE_SCHEMA:'MCPDATA', TABLE_NAME:'TOOLS', IS_UNIQUE:'D', COLUMN_COUNT:1, LONG_COMMENT:null, INDEX_TEXT:'INDEX: VISIBILITY', COLUMN_NAMES:'VISIBILITY', SEARCH_CONDITION:null },
   ],
 };
 
@@ -62,6 +72,20 @@ AND pg_catalog.pg_table_is_visible(pg_catalog.pg_class.oid)
 AND pg_catalog.pg_namespace.nspname != $3::VARCHAR`;
 let r = await session.resolveSynthetic(relationNamesSql, ['r','p','pg_catalog']);
 assert.deepEqual(r.rows.map((x)=>x[0]), ['a2a_agents','tools']);
+
+// SQLAlchemy get_multi_table_comment() uses the same pg_class/namespace/
+// relkind skeleton as get_table_names(), but expects exactly two values per
+// row. 0.1.33 classified this as relationNames and caused
+// `not enough values to unpack (expected 2, got 1)` in Table autoload.
+const commentSql = `SELECT pg_catalog.pg_class.relname, pg_catalog.pg_description.description
+FROM pg_catalog.pg_class LEFT OUTER JOIN pg_catalog.pg_description
+ON pg_catalog.pg_class.oid = pg_catalog.pg_description.objoid
+JOIN pg_catalog.pg_namespace ON pg_catalog.pg_namespace.oid = pg_catalog.pg_class.relnamespace
+WHERE pg_catalog.pg_class.relkind = ANY (ARRAY[$1::VARCHAR,$2::VARCHAR])
+AND pg_catalog.pg_class.relname IN ($3::VARCHAR)`;
+r = await session.resolveSynthetic(commentSql, ['r','p','tools']);
+assert.deepEqual(r.fields.map((f)=>f.name), ['relname','description']);
+assert.deepEqual(r.rows, [['tools','tool rows']]);
 
 const hasTableSql = `SELECT pg_catalog.pg_class.relname FROM pg_catalog.pg_class
 JOIN pg_catalog.pg_namespace ON pg_catalog.pg_namespace.oid = pg_catalog.pg_class.relnamespace
@@ -111,6 +135,16 @@ assert.equal(r.rows[0][4], '0');
 assert.deepEqual(String(r.rows[0][4]).split(' ').map(Number), [0]);
 assert.equal(r.rows[0][10], '{"name"}');
 
+// Reproduce the partial-index metadata seen by ContextForge. The proxy must
+// supplement COLUMN_NAMES from SYSTABLEINDEXSTAT rather than send an empty
+// int2vector (which psycopg parses as int('')).
+const toolsOid = tableOid('MCPDATA','TOOLS');
+r = await session.resolveSynthetic(indexSql, [String(toolsOid)]);
+assert.equal(r.rows.length, 1);
+assert.equal(r.rows[0][1], 'ix_tools_visibility');
+assert.equal(r.rows[0][4], '0');
+assert.equal(r.rows[0][10], '{"visibility"}');
+
 const fkSql = `SELECT pg_catalog.pg_class.relname, pg_catalog.pg_constraint.conname,
 CASE WHEN pg_catalog.pg_constraint.oid IS NOT NULL THEN pg_catalog.pg_get_constraintdef(pg_catalog.pg_constraint.oid,true) END,
 nsp_ref.nspname, pg_catalog.pg_description.description
@@ -125,6 +159,21 @@ assert.equal(r.rows.length, 1);
 assert.equal(r.rows[0][1], 'fk_a2a_agents_tool_id');
 assert.match(String(r.rows[0][2]), /REFERENCES "tools"\("id"\)/);
 
+// SQLAlchemy CHECK reflection also calls pg_get_constraintdef(), but it has a
+// four-column shape and no confrelid/nsp_ref join. It must not be routed to the
+// five-column foreign-key renderer.
+const checkSql = `SELECT pg_catalog.pg_class.relname, pg_catalog.pg_constraint.conname,
+CASE WHEN pg_catalog.pg_constraint.oid IS NOT NULL THEN pg_catalog.pg_get_constraintdef(pg_catalog.pg_constraint.oid,true) END AS src,
+pg_catalog.pg_description.description
+FROM pg_catalog.pg_class LEFT JOIN pg_catalog.pg_constraint
+ON pg_catalog.pg_class.oid=pg_catalog.pg_constraint.conrelid
+LEFT JOIN pg_catalog.pg_description ON pg_catalog.pg_description.objoid=pg_catalog.pg_constraint.oid
+JOIN pg_catalog.pg_namespace ON pg_catalog.pg_namespace.oid=pg_catalog.pg_class.relnamespace
+WHERE pg_catalog.pg_class.relkind = ANY (ARRAY[$1::VARCHAR])
+AND pg_catalog.pg_class.relname IN ($2::VARCHAR)`;
+r = await session.resolveSynthetic(checkSql, ['r','tools']);
+assert.deepEqual(r.fields.map((f)=>f.name), ['relname','conname','src','description']);
+assert.deepEqual(r.rows, [['tools',null,null,null]]);
 
 const keyConstraintSql = `SELECT attr.conrelid, array_agg(CAST(attr.attname AS TEXT) ORDER BY attr.ord) AS cols,
 attr.conname, min(attr.description) AS description, min(attr.indnkeyatts) AS indnkeyatts,
@@ -161,6 +210,7 @@ function catalog(sql, params) {
   if (/QSYS2\.SYSTABLES/i.test(sql)) return result(String(params[0] ?? '').toUpperCase()==='MCPDATA' ? tables : []);
   if (/QSYS2\.SYSCOLUMNS2/i.test(sql)) return result(columns[String(params[1] ?? '').toUpperCase()] ?? []);
   if (/FROM QSYS2\.SYSINDEXES/i.test(sql)) return result(indexes[String(params[1] ?? '').toUpperCase()] ?? []);
+  if (/FROM QSYS2\.SYSTABLEINDEXSTAT/i.test(sql)) return result(nativeIndexes[String(params[1] ?? '').toUpperCase()] ?? []);
   if (/FROM QSYS2\.SYSCST FK/i.test(sql)) return result([{
     CONSTRAINT_SCHEMA:'MCPDATA', CONSTRAINT_NAME:'FK_A2A_AGENTS_TOOL_ID', TABLE_SCHEMA:'MCPDATA', TABLE_NAME:'A2A_AGENTS',
     FK_COLUMN:'TOOL_ID', ORDINAL_POSITION:1, REFERENCED_TABLE_SCHEMA:'MCPDATA', REFERENCED_TABLE_NAME:'TOOLS',
