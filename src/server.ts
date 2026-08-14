@@ -62,6 +62,7 @@ export function createPgServer(pool: SessionJobPool, logger: Logger) {
           database: parameters.database,
           applicationName: parameters.application_name,
           backendPid: connection.backendPid,
+          options: parameters.options,
         }, logger);
         try {
           await session.initialize();
@@ -75,6 +76,8 @@ export function createPgServer(pool: SessionJobPool, logger: Logger) {
             user: parameters.user,
             database: parameters.database,
             applicationName: parameters.application_name,
+            startupOptions: parameters.options,
+            ...session.schemaContext(),
           });
 
           // pg-gateway 0.2.x is used for PostgreSQL startup/TLS/authentication.

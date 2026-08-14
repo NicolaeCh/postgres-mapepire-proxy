@@ -1,6 +1,7 @@
 import type { QueryResult, ColumnMetaData } from '@ibm/mapepire-js';
 import { createHash } from 'node:crypto';
 import type { SQLJobInstance } from '../mapepire/sdk.js';
+import type { IbmiSchemaCapabilities } from '../mapepire/schema-capabilities.js';
 import type { PostgresConnection } from 'pg-gateway';
 import { config } from '../config.js';
 import { Logger } from '../logger.js';
@@ -15,6 +16,7 @@ import {
 import { syntheticCatalog } from '../sql/catalog.js';
 import { classify, isIdempotentRead, type StatementKind } from '../sql/classifier.js';
 import { environmentQuery, type SyntheticResult } from '../sql/environment.js';
+import { parseSearchPathCommand, parseSetConfigSearchPath, parseStartupSearchPath, type SearchPathSelection } from '../sql/search-path.js';
 import { containsUnhandledPostgresSystemSql, pgAdminCompatibilityQuery } from '../sql/pgadmin.js';
 import {
   classifyPgAdminIbmiSchemaQuery,
@@ -54,6 +56,8 @@ import {
   executePgAdvisoryLockQuery, parsePgAdvisoryLockQuery, pgAdvisoryLockFields, releaseAllPgAdvisoryLocks,
 } from '../sql/advisory-lock.js';
 
+type SchemaSource = 'proxy-default' | 'startup-options' | 'set-search-path' | 'set-local-search-path';
+
 interface PreparedStatement { sql: string; parameterOids: number[]; translation?: Translation; }
 interface BufferedDb2Execution {
   translation: Translation;
@@ -69,7 +73,7 @@ interface Portal {
 }
 
 
-export interface ClientInfo { user?: string; database?: string; applicationName?: string; backendPid?: number; }
+export interface ClientInfo { user?: string; database?: string; applicationName?: string; backendPid?: number; options?: string; }
 
 export class ProxySession {
   private job?: SQLJobInstance;
@@ -81,6 +85,10 @@ export class ProxySession {
   private chain: Promise<void> = Promise.resolve();
   private extendedError = false;
   private currentSchema = config.ibmi.currentSchema;
+  private backendCurrentSchema?: string;
+  private currentSchemaCapabilities?: IbmiSchemaCapabilities;
+  private schemaSource: SchemaSource = 'proxy-default';
+  private localSchemaRestore?: { schema: string; source: SchemaSource; capabilities?: IbmiSchemaCapabilities };
   private schemaCache?: { expiresAt: number; rows: IbmiSchemaRow[] };
   private readonly ddlForeignKeyTypes = new DdlForeignKeyTypeRegistry();
   // Keep the TCP accumulation buffer typed as Uint8Array. Node 24's Buffer
@@ -98,7 +106,46 @@ export class ProxySession {
 
   async initialize(): Promise<void> {
     this.job = await this.pool.acquire();
-    this.logger.debug('Mapepire job leased to PostgreSQL session', { user: this.client.user, database: this.client.database });
+
+    const startupPath = parseStartupSearchPath(this.client.options);
+    if (startupPath) {
+      this.currentSchemaCapabilities = await this.pool.prepareSchema(this.currentJob(), startupPath.schema);
+      await this.currentJob().execute(`SET CURRENT SCHEMA ${quoteDb2Identifier(startupPath.schema)}`);
+      this.currentSchema = startupPath.schema;
+      this.schemaSource = 'startup-options';
+      if (startupPath.ignored.length > 0) {
+        this.logger.warn('PostgreSQL startup search_path contains additional schemas; proxy uses first concrete schema as IBM i CURRENT SCHEMA', {
+          database: this.client.database,
+          effectiveSchema: startupPath.schema,
+          ignoredSearchPathEntries: startupPath.ignored,
+        });
+      }
+    } else {
+      this.currentSchemaCapabilities = await this.pool.prepareSchema(this.currentJob(), this.currentSchema);
+    }
+    await this.currentJob().execute('COMMIT');
+    this.backendCurrentSchema = await this.readBackendCurrentSchema();
+    if (this.backendCurrentSchema && !sameSqlIdentifier(this.backendCurrentSchema, this.currentSchema)) {
+      throw new Error(`IBM i CURRENT SCHEMA mismatch: expected ${this.currentSchema}, backend reports ${this.backendCurrentSchema}`);
+    }
+
+    this.logger.debug('Mapepire job leased to PostgreSQL session', {
+      user: this.client.user,
+      database: this.client.database,
+      currentSchema: this.currentSchema,
+      backendCurrentSchema: this.backendCurrentSchema,
+      schemaSource: this.schemaSource,
+      schemaCapabilities: this.currentSchemaCapabilities,
+    });
+  }
+
+  schemaContext(): { currentSchema: string; backendCurrentSchema?: string; schemaSource: string; capabilities?: IbmiSchemaCapabilities } {
+    return {
+      currentSchema: this.currentSchema,
+      backendCurrentSchema: this.backendCurrentSchema,
+      schemaSource: this.schemaSource,
+      capabilities: this.currentSchemaCapabilities ? { ...this.currentSchemaCapabilities } : undefined,
+    };
   }
 
   handleRaw(data: Uint8Array): Promise<void> {
@@ -191,6 +238,12 @@ export class ProxySession {
         return;
       }
 
+      const setConfigSearchPath = parseSetConfigSearchPath(stmt.sql, config.ibmi.currentSchema);
+      if (setConfigSearchPath) {
+        this.send(rowDescription([{ name: setConfigSearchPath.fieldName, typeOid: OID.text, typeSize: -1 }]));
+        return;
+      }
+
       const local = await this.resolveSynthetic(stmt.sql);
       if (local) {
         this.validateSynthetic(local);
@@ -229,6 +282,13 @@ export class ProxySession {
     if (advisoryLock) {
       portal.descriptionSent = true;
       this.send(rowDescription(pgAdvisoryLockFields(advisoryLock)));
+      return;
+    }
+
+    const setConfigSearchPath = parseSetConfigSearchPath(stmt.sql, config.ibmi.currentSchema);
+    if (setConfigSearchPath) {
+      portal.descriptionSent = true;
+      this.send(rowDescription([{ name: setConfigSearchPath.fieldName, typeOid: OID.text, typeSize: -1 }]));
       return;
     }
 
@@ -445,10 +505,12 @@ export class ProxySession {
       if (this.transactionFailed) {
         await this.currentJob().execute('ROLLBACK');
         this.inTransaction = false; this.transactionFailed = false;
+        await this.restoreLocalSearchPath();
         this.send(commandComplete('ROLLBACK'));
       } else {
         await this.currentJob().execute('COMMIT');
         this.inTransaction = false;
+        await this.restoreLocalSearchPath();
         this.send(commandComplete('COMMIT'));
       }
       return;
@@ -456,6 +518,7 @@ export class ProxySession {
     if (rawKind === 'rollback') {
       await this.currentJob().execute('ROLLBACK');
       this.inTransaction = false; this.transactionFailed = false;
+      await this.restoreLocalSearchPath();
       this.send(commandComplete('ROLLBACK'));
       return;
     }
@@ -475,11 +538,21 @@ export class ProxySession {
       return;
     }
 
-    const searchPath = parseSearchPath(sql);
+    const searchPath = parseSearchPathCommand(sql, config.ibmi.currentSchema);
     if (searchPath) {
-      await this.currentJob().execute(`SET CURRENT SCHEMA ${quoteDb2Identifier(searchPath)}`);
-      this.currentSchema = searchPath;
-      this.send(commandComplete('SET'));
+      await this.applySearchPath(searchPath);
+      this.send(commandComplete(searchPath.reset ? 'RESET' : 'SET'));
+      return;
+    }
+
+    const setConfigSearchPath = parseSetConfigSearchPath(sql, config.ibmi.currentSchema);
+    if (setConfigSearchPath) {
+      await this.applySearchPath(setConfigSearchPath.selection);
+      this.sendSynthetic({
+        fields: [{ name: setConfigSearchPath.fieldName, typeOid: OID.text, typeSize: -1 }],
+        rows: [[this.currentSchema]],
+        tag: 'SELECT 1',
+      }, includeDescription);
       return;
     }
 
@@ -530,14 +603,95 @@ export class ProxySession {
       } else {
         try { await this.currentJob().execute('ROLLBACK'); } catch { /* best effort */ }
       }
-      const mapped = mapDb2Error(error) as Error & { proxySql?: string; proxyDb2Sql?: string };
+      const mapped = mapDb2Error(error) as Error & { proxySql?: string; proxyDb2Sql?: string; detail?: string };
       mapped.proxySql = sql;
       mapped.proxyDb2Sql = translation.sql;
+      if (isDb2Sql7008(error)) {
+        const capabilities = this.currentSchemaCapabilities;
+        let journalState: string;
+        if (capabilities?.transactionalWritesConfigured === false) {
+          journalState =
+            `No QSQJRN SQL-schema journal or STRJRNLIB-style inherited journaling was detected for ${this.currentSchema}.`;
+        } else if (capabilities?.transactionalWritesConfigured === true) {
+          journalState =
+            `Automatic schema journaling is configured, so verify that this specific target table is journaled and that the IBM i service profile has authority to its journal.`;
+        } else {
+          journalState =
+            `The proxy could not positively determine schema journaling state; verify table journaling and journal authority.`;
+        }
+        mapped.detail =
+          `Db2 for i SQL7008 occurred while PostgreSQL transaction semantics are active. ${journalState} ` +
+          `PostgreSQL COMMIT/ROLLBACK semantics require journaled IBM i files. ` +
+          `Prefer an IBM i SQL schema created with CREATE SCHEMA, or configure STRJRNLIB/STRJRNPF for an existing library. ` +
+          `Effective PostgreSQL current_schema is ${this.currentSchema} (source=${this.schemaSource}).`;
+      }
       throw mapped;
     }
 
     if (result.has_results) this.sendMapepireRows(result, maxRows, includeDescription);
     this.send(commandComplete(commandTag(translation.kind, result)));
+  }
+
+  private async readBackendCurrentSchema(): Promise<string | undefined> {
+    const result = await this.currentJob().execute('VALUES CURRENT SCHEMA') as QueryResult<Record<string, unknown>>;
+    const row = result.data?.[0];
+    if (!row) return undefined;
+    const value = Object.values(row)[0];
+    const text = String(value ?? '').trim();
+    return text || undefined;
+  }
+
+  private async applySearchPath(selection: SearchPathSelection): Promise<void> {
+    if (selection.scope === 'local') {
+      if (!this.inTransaction) {
+        throw sqlError('25P01', 'SET LOCAL search_path can only be used in transaction blocks');
+      }
+      if (!this.localSchemaRestore) {
+        this.localSchemaRestore = {
+          schema: this.currentSchema,
+          source: this.schemaSource,
+          capabilities: this.currentSchemaCapabilities ? { ...this.currentSchemaCapabilities } : undefined,
+        };
+      }
+    }
+
+    const capabilities = await this.pool.prepareSchema(this.currentJob(), selection.schema, false, !this.inTransaction);
+    await this.currentJob().execute(`SET CURRENT SCHEMA ${quoteDb2Identifier(selection.schema)}`);
+    this.currentSchema = selection.schema;
+    this.backendCurrentSchema = await this.readBackendCurrentSchema();
+    if (this.backendCurrentSchema && !sameSqlIdentifier(this.backendCurrentSchema, this.currentSchema)) {
+      throw new Error(`IBM i CURRENT SCHEMA mismatch: expected ${this.currentSchema}, backend reports ${this.backendCurrentSchema}`);
+    }
+    this.schemaSource = selection.scope === 'local' ? 'set-local-search-path' : 'set-search-path';
+    this.currentSchemaCapabilities = capabilities;
+    if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+    this.logger.info('PostgreSQL search_path mapped to IBM i CURRENT SCHEMA', {
+      database: this.client.database,
+      currentSchema: this.currentSchema,
+      backendCurrentSchema: this.backendCurrentSchema,
+      schemaSource: this.schemaSource,
+      searchPathScope: selection.scope,
+      requestedSearchPath: selection.requested,
+      ignoredSearchPathEntries: selection.ignored,
+      schemaCapabilities: this.currentSchemaCapabilities,
+    });
+  }
+
+  private async restoreLocalSearchPath(): Promise<void> {
+    const restore = this.localSchemaRestore;
+    if (!restore) return;
+    this.localSchemaRestore = undefined;
+    await this.currentJob().execute(`SET CURRENT SCHEMA ${quoteDb2Identifier(restore.schema)}`);
+    await this.currentJob().execute('COMMIT');
+    this.currentSchema = restore.schema;
+    this.backendCurrentSchema = await this.readBackendCurrentSchema();
+    this.schemaSource = restore.source;
+    this.currentSchemaCapabilities = restore.capabilities;
+    this.logger.debug('Restored PostgreSQL session search_path after SET LOCAL transaction scope', {
+      database: this.client.database,
+      currentSchema: this.currentSchema,
+      schemaSource: this.schemaSource,
+    });
   }
 
   private returningFields(sql: string): FieldDescription[] | undefined {
@@ -954,6 +1108,11 @@ export class ProxySession {
       await this.currentJob().execute(plan.db2Sql);
       if (!this.inTransaction) await this.currentJob().execute('COMMIT');
       this.schemaCache = undefined;
+      this.pool.invalidateSchemaCapabilities(plan.schemaName);
+      if (sameSqlIdentifier(plan.schemaName, this.currentSchema)) {
+        this.currentSchemaCapabilities = await this.pool.inspectSchema(this.currentJob(), this.currentSchema, true);
+        if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+      }
     } catch (error) {
       if (!this.inTransaction) {
         try { await this.currentJob().execute('ROLLBACK'); } catch { /* best effort */ }
@@ -1065,9 +1224,16 @@ export class ProxySession {
       error: String(e?.message ?? e),
       applicationName: this.client.applicationName,
       database: this.client.database,
+      currentSchema: this.currentSchema,
+      backendCurrentSchema: this.backendCurrentSchema,
+      schemaSource: this.schemaSource,
+      schemaCapabilities: this.currentSchemaCapabilities,
     };
     if (config.sql.logFailedText && e?.proxySql) fields.sql = String(e.proxySql);
-    if (e?.proxyDb2Sql && /^\s*(?:CREATE|ALTER|DROP|TRUNCATE|COMMENT|GRANT|REVOKE)\b/i.test(String(e.proxyDb2Sql))) {
+    if (e?.proxyDb2Sql && (
+      /^\s*(?:CREATE|ALTER|DROP|TRUNCATE|COMMENT|GRANT|REVOKE)\b/i.test(String(e.proxyDb2Sql))
+      || isDb2Sql7008(e)
+    )) {
       // DDL failures are difficult to diagnose from SQLSTATE alone. Include a
       // compact structural form by default, but redact quoted literal values.
       fields.db2SqlShape = safeDdlFailureShape(String(e.proxyDb2Sql));
@@ -1163,15 +1329,6 @@ function splitSimpleStatements(sql: string): string[] {
   return statements;
 }
 
-function parseSearchPath(sql: string): string | undefined {
-  const compact = sql.trim().replace(/;$/, '');
-  const match = compact.match(/^SET(?:\s+(?:SESSION|LOCAL))?\s+SEARCH_PATH\s*(?:TO|=)\s*("(?:[^"]|"")*"|[A-Za-z_#$@][A-Za-z0-9_#$@]*)/i);
-  if (!match) return undefined;
-  const raw = match[1]!;
-  if (raw.startsWith('"')) return raw.slice(1, -1).replaceAll('""', '"');
-  return raw.toUpperCase();
-}
-
 function quoteDb2Identifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`;
 }
@@ -1236,6 +1393,12 @@ function mapDb2Error(error: unknown): Error {
   if (state && /^[0-9A-Z]{5}$/i.test(state)) return Object.assign(new Error(text), { sqlstate: state.toUpperCase() });
   const code = text.match(/SQL\d{4,5}/i)?.[0];
   return Object.assign(new Error(text), { sqlstate: code ? 'HY000' : 'XX000', detail: code ? `Db2 for i error ${code}` : undefined });
+}
+
+function isDb2Sql7008(error: unknown): boolean {
+  const text = String((error as any)?.message ?? error);
+  const sqlCode = Number((error as any)?.sql_code ?? (error as any)?.sqlCode);
+  return sqlCode === -7008 || /\bSQL7008\b/i.test(text);
 }
 
 function isTransportError(error: unknown): boolean {

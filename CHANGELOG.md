@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.25 - 2026-08-13
+
+- Separate PostgreSQL database identity from effective IBM i schema in logs, health data, and client-visible introspection.
+- Add PostgreSQL-standard per-session schema routing through startup `options=-csearch_path=...`, `SET search_path`, `SET SCHEMA`, `SET LOCAL`, and `set_config('search_path', ...)`.
+- Confirm Db2 `CURRENT SCHEMA` from the backend after connection/schema changes instead of relying only on proxy state.
+- Add IBM i schema transaction preflight for SQL-schema `QSQJRN` and `STRJRNLIB`-style journal inheritance.
+- Add optional `IBMI_REQUIRE_TRANSACTIONAL_SCHEMA` fail-fast guard for transactional PostgreSQL applications.
+- Add optional `IBMI_AUTO_CREATE_CURRENT_SCHEMA` provisioning using IBM i SQL `CREATE SCHEMA`; fix pool bootstrap so a missing default schema can be created before `SET CURRENT SCHEMA`.
+- Enrich SQL7008 errors with effective schema/source and translated SQL shape while retaining PostgreSQL failed-transaction semantics.
+- Preserve existing-library journal administration as an explicit IBM i operational responsibility; the proxy does not silently create journals/start journaling in existing libraries.
+
 ## 0.1.24 - 2026-08-13
 
 - Translate PostgreSQL `INSERT ... RETURNING` into a Db2 for i `SELECT ... FROM FINAL TABLE (INSERT ...)` data-change table reference so Alembic can write and read back `alembic_version.version_num`.

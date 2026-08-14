@@ -124,6 +124,14 @@ export const config = {
     // backward-compatible alias for deployments created before 0.1.14.
     currentSchema: ibmiCurrentSchema,
     defaultSchema: ibmiCurrentSchema,
+    // If the configured application schema does not exist, the proxy can
+    // provision it with CREATE SCHEMA. On IBM i this is preferable to CRTLIB
+    // for transactional applications because an SQL schema includes the SQL
+    // journaling infrastructure used by commitment control.
+    autoCreateCurrentSchema: bool('IBMI_AUTO_CREATE_CURRENT_SCHEMA', false),
+    // Optional deployment guard. Leave false for read-only/legacy libraries;
+    // set true for PostgreSQL applications that require transactional writes.
+    requireTransactionalSchema: bool('IBMI_REQUIRE_TRANSACTIONAL_SCHEMA', false),
     jdbc,
     poolStartingSize: num('MAPEPIRE_POOL_STARTING_SIZE', 4),
     poolMaxSize: num('MAPEPIRE_POOL_MAX_SIZE', 12),
@@ -149,6 +157,9 @@ export const config = {
   shutdownGraceMs: num('SHUTDOWN_GRACE_MS', 15_000),
 };
 
+if (config.ibmi.poolStartingSize < 1) {
+  throw new Error('MAPEPIRE_POOL_STARTING_SIZE must be at least 1');
+}
 if (config.ibmi.poolStartingSize > config.ibmi.poolMaxSize) {
   throw new Error('MAPEPIRE_POOL_STARTING_SIZE cannot exceed MAPEPIRE_POOL_MAX_SIZE');
 }

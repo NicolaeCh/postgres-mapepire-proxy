@@ -43,10 +43,45 @@ Every IBM i connection uses the same service profile. PostgreSQL usernames are n
 | `IBMI_PASSWORD` | required | Password for `IBMI_USER`. |
 | `MAPEPIRE_REJECT_UNAUTHORIZED` | `true` | Verify Mapepire TLS certificate. |
 | `MAPEPIRE_CA_FILE` | empty | Optional PEM CA for private PKI. |
-| `IBMI_CURRENT_SCHEMA` | `MYLIB`/site value | Preferred setting for the Db2 current schema applied on connect and restored when a pooled job is released. Also backs PostgreSQL `current_schema()`. |
+| `IBMI_CURRENT_SCHEMA` | `MYLIB`/site value | Proxy-wide default application schema. It is mapped to Db2 `CURRENT SCHEMA`, PostgreSQL `search_path`, and `current_schema()`. |
+| `IBMI_AUTO_CREATE_CURRENT_SCHEMA` | `false` | If a selected schema is missing, create it with SQL `CREATE SCHEMA`. On IBM i this creates the schema's SQL journal infrastructure. |
+| `IBMI_REQUIRE_TRANSACTIONAL_SCHEMA` | `false` | Strict guard: refuse a selected schema unless the proxy can positively detect automatic journaling for newly-created tables. Recommended for application gateways that require PostgreSQL transaction semantics. |
 | `DEFAULT_SCHEMA` | `QGPL` | Backward-compatible alias used only when `IBMI_CURRENT_SCHEMA` is not set. |
 
 Use a dedicated IBM i profile with least privilege: access only to the schemas/tables/procedures required by the applications using the proxy. Do not use `QSECOFR` or another broad administrative profile.
+
+
+### PostgreSQL `search_path` and per-application schema routing
+
+The database name and schema name are separate. A connection to database `SEIDOR76` can use schema `APP1`, `APP2`, or another IBM i SQL schema/library. `IBMI_CURRENT_SCHEMA` is only the proxy-wide default.
+
+A client can override the default using PostgreSQL-standard session settings:
+
+```sql
+SHOW search_path;
+SELECT current_schema();
+SET search_path TO APPDATA;
+SET SCHEMA 'APPDATA';
+SELECT set_config('search_path', 'APPDATA', false);
+```
+
+The proxy also accepts libpq/psycopg startup `options`. For example, an application URL can select its own IBM i schema without changing the proxy-wide default:
+
+```text
+postgresql+psycopg://proxyuser:password@proxy:5432/SEIDOR76?options=-csearch_path%3DAPPDATA
+```
+
+PostgreSQL supports a list of schemas in `search_path`; Db2 for i exposes one `CURRENT SCHEMA` register. The proxy therefore maps the first concrete application schema to Db2 `CURRENT SCHEMA` and logs additional path elements as ignored. `pg_catalog`, `pg_temp*`, and `$user` are virtual/special entries and are not sent to Db2.
+
+At authentication the proxy logs both the PostgreSQL `database` and the effective/backend-confirmed schema. `/readyz` and `/stats` expose the configured database/default schema and the default schema journaling capability.
+
+### IBM i journaling and PostgreSQL transactions
+
+The proxy keeps Mapepire JDBC auto-commit disabled and uses a transactional isolation level so PostgreSQL `BEGIN`, `COMMIT`, `ROLLBACK`, and savepoints have real backend semantics. On IBM i, data changes under commitment control require the affected physical files to be journaled.
+
+For application-owned schemas, the preferred deployment is an IBM i SQL schema created with `CREATE SCHEMA`. IBM i creates `QSQJRN` and `QSQJRN0001` in such a schema and subsequently created SQL tables are automatically journaled. Existing traditional libraries can instead use library journaling (`STRJRNLIB`) or explicit file journaling (`STRJRNPF`) according to the site's journal/receiver policy.
+
+The proxy deliberately does **not** create journals or start journaling in an existing library automatically. Journal receiver placement, retention, ASP selection, authority, and operational policy are persistent IBM i administration decisions. Use `IBMI_AUTO_CREATE_CURRENT_SCHEMA=true` only to provision a **missing** SQL schema; use `IBMI_REQUIRE_TRANSACTIONAL_SCHEMA=true` to fail fast when the selected schema is not transaction-ready.
 
 ## Mapepire session-affinity pool
 

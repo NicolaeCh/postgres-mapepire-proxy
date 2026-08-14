@@ -52,6 +52,10 @@ export function pgAdminCompatibilityQuery(
     /^select\s+(?:pg_catalog\.)?set_config\s*\(\s*'([^']+)'\s*,\s*'((?:''|[^'])*)'\s*,\s*(?:false|true)\s*\)(?:\s+as\s+([a-z_][a-z0-9_$]*))?(?:\s+from\s+(?:(?:pg_catalog\.)?pg_settings\b|(?:pg_catalog\.)?pg_show_all_settings\s*\(\s*\)).*)?$/i,
   );
   if (setConfig) {
+    // search_path is stateful and must update Db2 CURRENT SCHEMA. Leave it to
+    // ProxySession's schema-routing path instead of synthetically echoing the
+    // requested value while keeping the backend in the previous schema.
+    if (setConfig[1]!.toLowerCase() === 'search_path') return undefined;
     const value = setConfig[2]!.replaceAll("''", "'");
     return selectOne(setConfig[3] ?? 'set_config', value);
   }
@@ -734,7 +738,7 @@ function evaluateBuiltinExpression(
     return { field: int4(alias ?? 'inet_server_port'), value: context.serverPort ?? 5432 };
   }
   if (/^(?:pg_catalog\.)?version\s*\(\s*\)$/i.test(core)) {
-    return { field: text(alias ?? 'version'), value: 'PostgreSQL 14.0 compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.24)' };
+    return { field: text(alias ?? 'version'), value: 'PostgreSQL 14.0 compatible gateway to IBM i Db2 (Mapepire Proxy 0.1.25)' };
   }
   const setting = core.match(/^(?:pg_catalog\.)?current_setting\s*\(\s*'([^']+)'(?:\s*,\s*(?:true|false))?\s*\)$/i);
   if (setting) {

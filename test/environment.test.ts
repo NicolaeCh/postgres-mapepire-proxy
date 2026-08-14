@@ -21,6 +21,10 @@ describe('SQLAlchemy PostgreSQL dialect bootstrap compatibility', () => {
 
   it('supports the remaining SQLAlchemy 2.0 PostgreSQL initialize probes', () => {
     expect(env('SELECT current_schema()').rows).toEqual([[currentSchema]]);
+    expect(env('SELECT current_schema').rows).toEqual([[currentSchema]]);
+    expect(env("SELECT current_setting('search_path')").rows).toEqual([[currentSchema]]);
+    expect(env('SELECT current_schemas(false)').rows).toEqual([[`{"${currentSchema}"}`]]);
+    expect(env('SELECT current_schemas(true)').rows).toEqual([[`{"pg_catalog","${currentSchema}"}`]]);
     expect(env('SHOW transaction isolation level').rows).toEqual([['read committed']]);
     expect(env('SHOW standard_conforming_strings').rows).toEqual([['on']]);
   });

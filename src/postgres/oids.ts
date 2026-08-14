@@ -2,6 +2,7 @@ export const OID = {
   bool: 16,
   bytea: 17,
   char: 18,
+  name: 19,
   int8: 20,
   int2: 21,
   int4: 23,
@@ -16,6 +17,8 @@ export const OID = {
   time: 1083,
   timestamp: 1114,
   numeric: 1700,
+  nameArray: 1003,
+  textArray: 1009,
 } as const;
 
 export interface PgType {
