@@ -29,16 +29,47 @@ const opts = {
 };
 const ddl = translateSql(`CREATE TABLE a2a_agents (
   id VARCHAR(36) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  slug VARCHAR(255) NOT NULL,
+  description TEXT,
+  endpoint_url VARCHAR(767) NOT NULL,
+  agent_type VARCHAR(50) DEFAULT 'generic' NOT NULL,
+  protocol_version VARCHAR(10) DEFAULT '1.0' NOT NULL,
+  capabilities JSON,
+  config JSON,
+  auth_type VARCHAR(50),
+  auth_value TEXT,
   enabled BOOLEAN DEFAULT '1',
-  reachable BOOLEAN DEFAULT '0',
-  casted BOOLEAN DEFAULT '1'::boolean,
-  version INTEGER DEFAULT '1' NOT NULL
+  reachable BOOLEAN DEFAULT '1',
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  last_interaction TIMESTAMP WITH TIME ZONE,
+  tags JSON,
+  created_by VARCHAR(255),
+  created_from_ip VARCHAR(45),
+  created_via VARCHAR(100),
+  created_user_agent TEXT,
+  modified_by VARCHAR(255),
+  modified_from_ip VARCHAR(45),
+  modified_via VARCHAR(100),
+  modified_user_agent TEXT,
+  import_batch_id VARCHAR(36),
+  federation_source VARCHAR(255),
+  version INTEGER DEFAULT '1' NOT NULL,
+  CONSTRAINT pk_a2a_agents PRIMARY KEY (id),
+  CONSTRAINT uq_a2a_agents_name UNIQUE (name),
+  CONSTRAINT uq_a2a_agents_slug UNIQUE (slug)
 )`, opts).sql;
 assert.match(ddl, /ENABLED BOOLEAN DEFAULT TRUE/i);
-assert.match(ddl, /REACHABLE BOOLEAN DEFAULT FALSE/i);
-assert.match(ddl, /CASTED BOOLEAN DEFAULT TRUE/i);
-assert.match(ddl, /VERSION INTEGER DEFAULT '1'/i);
+assert.match(ddl, /REACHABLE BOOLEAN DEFAULT TRUE/i);
+assert.match(ddl, /VERSION INTEGER DEFAULT 1 NOT NULL/i);
+assert.match(ddl, /AGENT_TYPE VARCHAR\(50\) DEFAULT 'generic' NOT NULL/i);
+assert.match(ddl, /PROTOCOL_VERSION VARCHAR\(10\) DEFAULT '1\.0' NOT NULL/i);
+assert.match(ddl, /DESCRIPTION CLOB\(2G\) CCSID 1208/i);
+assert.match(ddl, /CAPABILITIES CLOB\(2G\) CCSID 1208/i);
+assert.match(ddl, /CREATED_AT TIMESTAMP NOT NULL/i);
 assert.doesNotMatch(ddl, /BOOLEAN\s+DEFAULT\s+'[01]'/i);
+assert.doesNotMatch(ddl, /INTEGER\s+DEFAULT\s+'[+-]?\d+'/i);
 
 // Validate that psycopg's post-ROLLBACK DEALLOCATE ALL is consumed by the
 // PostgreSQL session layer and is never forwarded to Db2, whose DEALLOCATE
@@ -82,7 +113,7 @@ assert.ok(executed.includes('ROLLBACK'), 'ROLLBACK must reach Db2');
 assert.ok(!executed.some((sql) => /DEALLOCATE/i.test(sql)), 'DEALLOCATE ALL must not reach Db2');
 await session.close();
 
-console.log('PostgreSQL prepared-statement cleanup / Db2 Boolean default compatibility check OK');
+console.log('PostgreSQL prepared-statement cleanup / Db2 Boolean+numeric default compatibility check OK');
 
 function queryFrame(sql) {
   const body = Buffer.concat([Buffer.from(sql, 'utf8'), Buffer.from([0])]);

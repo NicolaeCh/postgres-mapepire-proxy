@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.27 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.27
+podman build -t postgres-mapepire-proxy:0.1.28 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.28
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -49,6 +49,10 @@ PGPASSWORD='<PG_PROXY_PASSWORD>' psql -h 127.0.0.1 -p 5432 -U proxyuser -d ibmi 
 curl http://127.0.0.1:8080/readyz
 ```
 
+
+## PostgreSQL numeric defaults on Db2 for i (0.1.28)
+
+Release 0.1.28 extends type-aware DDL default normalization. PostgreSQL/SQLAlchemy may render numeric `server_default` strings as quoted literals, for example `INTEGER DEFAULT '1'`. Db2 for i validates CREATE/ALTER TABLE defaults against the declared column type and can reject the quoted form with SQL0574/42894. The proxy now converts simple quoted numeric literals to numeric constants only on numeric columns, e.g. `INTEGER DEFAULT '1'` -> `INTEGER DEFAULT 1`, while character defaults such as `VARCHAR(20) DEFAULT '1'` remain unchanged.
 
 ## PostgreSQL Boolean defaults and prepared-statement cleanup (0.1.27)
 

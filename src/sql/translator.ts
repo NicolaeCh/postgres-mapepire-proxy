@@ -210,7 +210,41 @@ function rewriteDb2TypePrefix(rest: string, defaultVarcharLength: number): strin
   // their original PostgreSQL meaning.
   if (/^BOOLEAN\b/i.test(value)) value = rewriteDb2BooleanDefault(value);
 
+  // SQLAlchemy server_default values are SQL text.  A Python string such as
+  // server_default="1" is therefore rendered by PostgreSQL as DEFAULT '1'
+  // even when the target column is numeric. PostgreSQL accepts several such
+  // implicit conversions, while Db2 for i validates CREATE TABLE defaults
+  // against the declared column type and raises SQL0574 for incompatible
+  // attributes. Normalize only simple quoted numeric literals and only when
+  // the column itself is numeric; character defaults such as VARCHAR DEFAULT
+  // '1' deliberately remain quoted.
+  if (/^(?:SMALLINT|INTEGER|BIGINT)\b/i.test(value)) {
+    value = rewriteDb2NumericDefault(value, 'integer');
+  } else if (/^(?:DECIMAL|NUMERIC)\b/i.test(value)) {
+    value = rewriteDb2NumericDefault(value, 'decimal');
+  } else if (/^(?:REAL|DOUBLE|FLOAT|DECFLOAT)\b/i.test(value)) {
+    value = rewriteDb2NumericDefault(value, 'floating');
+  }
+
   return value;
+}
+
+function rewriteDb2NumericDefault(
+  definitionTail: string,
+  kind: 'integer' | 'decimal' | 'floating',
+): string {
+  const integer = `[+-]?\\d+`;
+  const decimal = `[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)`;
+  const floating = `${decimal}(?:[eE][+-]?\\d+)?`;
+  const pattern = kind === 'integer' ? integer : kind === 'decimal' ? decimal : floating;
+
+  // Keep the rewrite intentionally narrow: DEFAULT '<numeric literal>'.
+  // Expressions, functions, CURRENT_* defaults and arbitrary casts are left
+  // untouched because they may carry backend-specific semantics.
+  return definitionTail.replace(
+    new RegExp(`\\bDEFAULT\\s+'(${pattern})'(?=\\s|,|$)`, 'i'),
+    (_match: string, literal: string) => `DEFAULT ${literal}`,
+  );
 }
 
 function rewriteDb2BooleanDefault(definitionTail: string): string {

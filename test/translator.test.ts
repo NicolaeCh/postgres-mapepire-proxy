@@ -166,8 +166,29 @@ describe('PostgreSQL DDL compatibility', () => {
     expect(sql).toContain('REACHABLE BOOLEAN DEFAULT FALSE');
     expect(sql).toContain('ARCHIVED BOOLEAN DEFAULT FALSE');
     expect(sql).toContain('CASTED BOOLEAN DEFAULT TRUE');
-    expect(sql).toContain("VERSION INTEGER DEFAULT '1'");
+    expect(sql).toContain('VERSION INTEGER DEFAULT 1');
     expect(sql).toContain("NOTE VARCHAR(10) DEFAULT '1'");
+  });
+
+
+  it('normalizes quoted PostgreSQL numeric defaults only on numeric columns', () => {
+    const sql = translateSql(
+      `create table numeric_defaults (
+        i integer default '1',
+        b bigint default '-42',
+        d decimal(10,2) default '1.25',
+        n numeric(10,2) default '-0.50',
+        r double precision default '1.5e2',
+        text_value varchar(20) default '1'
+      )`,
+      opts,
+    ).sql;
+    expect(sql).toContain('I INTEGER DEFAULT 1');
+    expect(sql).toContain('B BIGINT DEFAULT -42');
+    expect(sql).toContain('D DECIMAL(10,2) DEFAULT 1.25');
+    expect(sql).toContain('N NUMERIC(10,2) DEFAULT -0.50');
+    expect(sql).toContain('R DOUBLE DEFAULT 1.5e2');
+    expect(sql).toContain("TEXT_VALUE VARCHAR(20) DEFAULT '1'");
   });
 
 });

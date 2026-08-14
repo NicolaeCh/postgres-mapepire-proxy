@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.28 - 2026-08-14
+
+- Normalize simple quoted PostgreSQL/SQLAlchemy numeric defaults to Db2 numeric constants on numeric columns (`INTEGER DEFAULT '1'` -> `INTEGER DEFAULT 1`) while preserving character defaults.
+- Fix ContextForge migration `90cc4b5a96e7` `a2a_agents.version INTEGER DEFAULT '1'`, the remaining SQL0574/42894 attribute error after Boolean-default normalization.
+- Extend the PostgreSQL session-control/DDL verifier with numeric default coverage and validate the full A2A table translation shape.
+
 ## 0.1.27 - 2026-08-14
 
 - Translate PostgreSQL/SQLAlchemy Boolean column defaults (`'1'`, `1`, `'0'`, true/false aliases) to the Db2 for i Boolean constants `TRUE` / `FALSE` in CREATE/ALTER TABLE DDL.
