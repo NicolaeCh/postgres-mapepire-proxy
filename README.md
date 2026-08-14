@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.28 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.28
+podman build -t postgres-mapepire-proxy:0.1.29 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.29
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -49,10 +49,6 @@ PGPASSWORD='<PG_PROXY_PASSWORD>' psql -h 127.0.0.1 -p 5432 -U proxyuser -d ibmi 
 curl http://127.0.0.1:8080/readyz
 ```
 
-
-## PostgreSQL numeric defaults on Db2 for i (0.1.28)
-
-Release 0.1.28 extends type-aware DDL default normalization. PostgreSQL/SQLAlchemy may render numeric `server_default` strings as quoted literals, for example `INTEGER DEFAULT '1'`. Db2 for i validates CREATE/ALTER TABLE defaults against the declared column type and can reject the quoted form with SQL0574/42894. The proxy now converts simple quoted numeric literals to numeric constants only on numeric columns, e.g. `INTEGER DEFAULT '1'` -> `INTEGER DEFAULT 1`, while character defaults such as `VARCHAR(20) DEFAULT '1'` remain unchanged.
 
 ## PostgreSQL Boolean defaults and prepared-statement cleanup (0.1.27)
 
@@ -119,6 +115,14 @@ Release 0.1.17 fixes the pgAdmin 9.16+ Columns node contract and extends IBM i i
 
 The **Views** collection is now backed by live IBM i catalogs. SQL views are discovered with `QSYS2.SYSTABLES` where `TABLE_TYPE='V'` and enriched from `QSYS2.SYSVIEWS`, including the view definition. Views receive stable virtual PostgreSQL OIDs, so their **Columns** collection is resolved through the same `QSYS2.SYSCOLUMNS2` path as table columns. A pgAdmin refresh therefore exposes views created directly on IBM i with `CREATE VIEW`.
 
+
+## SQLAlchemy / Alembic live reflection (0.1.29)
+
+Release 0.1.29 handles SQLAlchemy PostgreSQL Inspector/reflection queries before the generic PostgreSQL-system firewall and answers them from live IBM i catalogs. This covers table discovery/`has_table`, columns, relation OIDs, indexes, foreign keys, primary keys, and unique constraints. Ordinary IBM i uppercase object names are exposed with PostgreSQL's normal lowercase identifier semantics, and relation OIDs remain deterministic across connections.
+
+The adapter uses `QSYS2.SYSTABLES`, `QSYS2.SYSCOLUMNS2`, `QSYS2.SYSINDEXES`/`QSYS2.SYSTABLEINDEXSTAT`, and IBM i constraint catalog views. This matters for migration tools: an empty synthetic `pg_catalog` result can be interpreted as “table does not exist” and can cause an idempotent migration to skip required `ALTER TABLE` or index work without raising an error.
+
+**Upgrade note:** a schema that was already migrated while reflection returned false negatives can contain missed historical changes even after the proxy is upgraded. For disposable/test application schemas, recreate the schema and rerun Alembic from a clean database state. For schemas containing data, compare the live IBM i schema with the application's migration expectations and repair only the missed application changes before continuing. The proxy deliberately does not inject application-specific columns.
 
 ## SQLAlchemy / psycopg startup compatibility (0.1.18)
 

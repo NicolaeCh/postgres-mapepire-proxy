@@ -97,3 +97,8 @@ PostgreSQL permits compatible VARCHAR typmods across a foreign key (for example 
 ## 0.1.24 ContextForge / Alembic RETURNING
 
 PostgreSQL `INSERT ... RETURNING <simple columns>` is translated to `SELECT <columns> FROM FINAL TABLE (INSERT ...)`, allowing Alembic's `alembic_version` insert to receive the returned revision value on Db2 for i. The same compatibility layer maps simple-column `UPDATE ... RETURNING` to `FINAL TABLE` and `DELETE ... RETURNING` to `OLD TABLE`. Complex PostgreSQL-only RETURNING expressions fail with SQLSTATE `0A000` instead of being sent unchanged to Db2.
+
+
+## 0.1.29 SQLAlchemy/Alembic live reflection
+
+SQLAlchemy PostgreSQL reflection for ordinary application objects is backed by IBM i catalogs instead of an empty generic pg_catalog fallback. Supported Inspector families include table names/has-table, columns, indexes, foreign keys, primary keys and unique constraints. Relation OIDs are deterministic synthetic PostgreSQL OIDs. PostgreSQL system catalogs are still not fully emulated; unsupported PostgreSQL-specific metadata families remain synthetic/empty rather than being forwarded to Db2 for i.

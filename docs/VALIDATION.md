@@ -21,7 +21,7 @@ npm install
 npm run typecheck
 npm test
 npm run build
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.28 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.29 .
 ```
 
 Then execute the smoke tests in `docs/TESTING.md` against a real Mapepire server before production deployment.
@@ -134,3 +134,8 @@ The table-child contract tests include a normal pgAdmin Tables node request cont
 ## 0.1.19 SQLAlchemy / psycopg nested-transaction validation
 
 The compiled SQLAlchemy compatibility verifier now covers psycopg 3.3.4 nested transaction commands (`SAVEPOINT`, `RELEASE`, `ROLLBACK TO`) and the exact Db2 for i SQL emitted for each command. It also verifies that psycopg's `TypeInfo.fetch()` query for the optional `hstore` extension receives a five-column empty rowset (`name`, `oid`, `array_oid`, `regtype`, `delimiter`) instead of the generic synthetic `pg_type` enumeration. Live IBM i acceptance must still execute a savepoint sequence through Mapepire to validate the backend commitment-control environment.
+
+
+## 0.1.29 SQLAlchemy/Alembic reflection validation
+
+The compiled reflection verifier exercises the PostgreSQL catalog query families used by SQLAlchemy 2.x Inspector against a fake IBM i QSYS2 catalog. It validates table names/has-table, columns, relation OIDs, indexes and key columns, foreign keys, and primary-key metadata. Full dependency-resolved build and live IBM i execution remain deployment-host acceptance tests.

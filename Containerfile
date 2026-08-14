@@ -18,7 +18,7 @@ ENV IBMI_RDB_NAME=BUILDTEST \
     PG_SERVER_VERSION=14.0
 
 COPY package*.json ./
-COPY scripts/verify-runtime-modules.mjs scripts/verify-pgadmin-compat.mjs scripts/verify-pgadmin-wire.mjs scripts/verify-startup-wire.mjs scripts/verify-pgadmin-browser.mjs scripts/verify-pgadmin-schema.mjs scripts/verify-pgadmin-table.mjs scripts/verify-pgadmin-table-child.mjs scripts/verify-pgadmin-view.mjs scripts/verify-sqlalchemy-compat.mjs scripts/verify-contextforge-advisory-lock.mjs scripts/verify-contextforge-ddl.mjs scripts/verify-contextforge-fk-types.mjs scripts/verify-contextforge-returning.mjs scripts/verify-schema-routing.mjs scripts/verify-schema-capabilities.mjs scripts/verify-postgres-session-control.mjs scripts/verify-sql-translation.mjs ./scripts/
+COPY scripts/verify-runtime-modules.mjs scripts/verify-pgadmin-compat.mjs scripts/verify-pgadmin-wire.mjs scripts/verify-startup-wire.mjs scripts/verify-pgadmin-browser.mjs scripts/verify-pgadmin-schema.mjs scripts/verify-pgadmin-table.mjs scripts/verify-pgadmin-table-child.mjs scripts/verify-pgadmin-view.mjs scripts/verify-sqlalchemy-compat.mjs scripts/verify-sqlalchemy-reflection.mjs scripts/verify-contextforge-advisory-lock.mjs scripts/verify-contextforge-ddl.mjs scripts/verify-contextforge-fk-types.mjs scripts/verify-contextforge-returning.mjs scripts/verify-schema-routing.mjs scripts/verify-schema-capabilities.mjs scripts/verify-postgres-session-control.mjs scripts/verify-sql-translation.mjs ./scripts/
 RUN npm install --ignore-scripts \
  && node scripts/verify-runtime-modules.mjs
 COPY tsconfig.json eslint.config.js .prettierrc.json ./
@@ -33,6 +33,7 @@ RUN npm run build \
  && node scripts/verify-pgadmin-table-child.mjs \
  && node scripts/verify-pgadmin-view.mjs \
  && node scripts/verify-sqlalchemy-compat.mjs \
+ && node scripts/verify-sqlalchemy-reflection.mjs \
  && node scripts/verify-contextforge-advisory-lock.mjs \
  && node scripts/verify-contextforge-ddl.mjs \
  && node scripts/verify-contextforge-fk-types.mjs \

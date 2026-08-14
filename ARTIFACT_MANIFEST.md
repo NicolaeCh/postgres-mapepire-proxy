@@ -1,6 +1,6 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.28 reference implementation**
+Version: **0.1.29 reference implementation**
 
 ## Architecture decisions incorporated
 
@@ -21,7 +21,7 @@ Version: **0.1.28 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.28.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.29.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 
@@ -137,7 +137,13 @@ See `docs/VALIDATION.md`. This build environment could not resolve npm packages 
 
 ## 0.1.28 additions
 
-- DDL translation normalizes quoted numeric defaults only when the target column is numeric.
-- ContextForge A2A migration compatibility for `version INTEGER DEFAULT '1'`.
-- Extended `verify-postgres-session-control.mjs` coverage.
-- `docs/BUILD_FIX_0.1.28.md`.
+- Type-aware numeric DDL default normalization.
+- Full A2A DDL regression coverage in the PostgreSQL session-control verifier.
+
+## 0.1.29 additions
+
+- `src/sql/sqlalchemy-reflection.ts` provides live SQLAlchemy/Alembic PostgreSQL reflection backed by QSYS2 catalogs.
+- `src/proxy/session.ts` routes reflection before the generic pg_catalog firewall and fetches live table/column/index/constraint metadata.
+- Index catalog data includes key columns/filter metadata for ORM reflection.
+- `scripts/verify-sqlalchemy-reflection.mjs` is a mandatory image-build compatibility gate.
+- `docs/BUILD_FIX_0.1.29.md` documents the false-negative reflection failure and partially migrated schema recovery.

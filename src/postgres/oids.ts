@@ -17,7 +17,10 @@ export const OID = {
   time: 1083,
   timestamp: 1114,
   numeric: 1700,
+  boolArray: 1000,
   nameArray: 1003,
+  int2Array: 1005,
+  oidArray: 1028,
   textArray: 1009,
 } as const;
 

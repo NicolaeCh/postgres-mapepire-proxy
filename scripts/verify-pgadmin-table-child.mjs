@@ -49,7 +49,7 @@ assert.equal(result.rows.length,1);
 assert.ok(result.fields.some((f)=>f.name==='atttypid'));
 
 
-const indexes=[{schema:'MONAI',table:'ORDERS',indexSchema:'MONAI',name:'ORDERS_IX1',owner:'MAPESVC',unique:false,columnCount:1,longComment:null,text:'Order index'}];
+const indexes=[{schema:'MONAI',table:'ORDERS',indexSchema:'MONAI',name:'ORDERS_IX1',owner:'MAPESVC',unique:false,columnCount:1,longComment:null,text:'Order index',columns:['ID'],filterDefinition:null}];
 req = classifyPgAdminTableChildQuery(`SELECT DISTINCT ON(cls.relname) cls.oid, cls.relname as name, false as is_inherited, des.description
 FROM pg_catalog.pg_index idx JOIN pg_catalog.pg_class cls ON cls.oid=idx.indexrelid
 WHERE indrelid = ${tid}::OID`);

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-IMAGE="${IMAGE:-localhost/postgres-mapepire-proxy:0.1.28}"
+IMAGE="${IMAGE:-localhost/postgres-mapepire-proxy:0.1.29}"
 MANIFEST="${MANIFEST:-$IMAGE}"
 
 podman manifest rm "$MANIFEST" 2>/dev/null || true

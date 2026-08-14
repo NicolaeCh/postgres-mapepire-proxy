@@ -1,10 +1,19 @@
 # Changelog
 
+## 0.1.29 - 2026-08-14
+
+- Add live SQLAlchemy/Alembic PostgreSQL reflection backed by IBM i QSYS2 catalogs before the generic pg_catalog firewall.
+- Implement Inspector table/has-table, column, table-OID, index, foreign-key, primary-key, and unique-constraint reflection families used by SQLAlchemy 2.x.
+- Return PostgreSQL-visible lowercase names for ordinary IBM i uppercase identifiers while retaining deterministic virtual relation OIDs.
+- Extend IBM i index catalog reads with key-column/search-condition metadata from QSYS2.SYSTABLEINDEXSTAT so Inspector.get_indexes() can identify existing indexes by columns.
+- Fix migrations that silently skipped ALTER/index operations because unhandled pg_catalog reflection queries previously returned empty synthetic rowsets.
+- Add build gate `verify-sqlalchemy-reflection.mjs` covering table discovery, has_table, columns, OIDs, indexes, foreign keys, and key constraints.
+- Document recovery for schemas that were partially migrated before reflection support: recreate the application schema for a clean test deployment or repair the missed application migrations explicitly.
+
 ## 0.1.28 - 2026-08-14
 
-- Normalize simple quoted PostgreSQL/SQLAlchemy numeric defaults to Db2 numeric constants on numeric columns (`INTEGER DEFAULT '1'` -> `INTEGER DEFAULT 1`) while preserving character defaults.
-- Fix ContextForge migration `90cc4b5a96e7` `a2a_agents.version INTEGER DEFAULT '1'`, the remaining SQL0574/42894 attribute error after Boolean-default normalization.
-- Extend the PostgreSQL session-control/DDL verifier with numeric default coverage and validate the full A2A table translation shape.
+- Normalize quoted numeric defaults on numeric CREATE/ALTER TABLE columns (`INTEGER DEFAULT '1'` -> `INTEGER DEFAULT 1`) while preserving character defaults.
+- Strengthen the PostgreSQL session-control build verifier with the complete ContextForge A2A table DDL.
 
 ## 0.1.27 - 2026-08-14
 

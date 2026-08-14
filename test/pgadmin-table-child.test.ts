@@ -11,7 +11,7 @@ const columns = [
   { schema:'MONAI', table:'ORDERS', name:'DESCRIPTION', ordinal:2, dataType:'VARCHAR', length:100, numericScale:null, numericPrecision:null, nullable:true, longComment:null, text:'Description', hasDefault:'N', defaultValue:null, charMaxLength:100, datetimePrecision:null, identity:false, identityGeneration:null, expression:null },
 ];
 const indexes = [
-  { schema:'MONAI', table:'ORDERS', indexSchema:'MONAI', name:'ORDERS_IX1', owner:'MAPESVC', unique:false, columnCount:1, longComment:null, text:'Order index' },
+  { schema:'MONAI', table:'ORDERS', indexSchema:'MONAI', name:'ORDERS_IX1', owner:'MAPESVC', unique:false, columnCount:1, longComment:null, text:'Order index', columns:['ID'], filterDefinition:null },
 ];
 
 describe('pgAdmin IBM i table-child contracts', () => {

@@ -36,7 +36,7 @@ import {
   isPgCreateTable,
   parsePgTableOwnerDdl,
   renderPgAdminIbmiTableQuery,
-  registerIbmiTables, lookupRegisteredIbmiTable,
+  registerIbmiTables, lookupRegisteredIbmiTable, tableOid,
   type IbmiTableRow,
 } from '../sql/pgadmin-ibmi-table.js';
 import {
@@ -56,6 +56,27 @@ import { parsePgDeallocate } from '../sql/prepared-control.js';
 import {
   executePgAdvisoryLockQuery, parsePgAdvisoryLockQuery, pgAdvisoryLockFields, releaseAllPgAdvisoryLocks,
 } from '../sql/advisory-lock.js';
+import {
+  classifySqlAlchemyReflectionQuery,
+  IBMI_FOREIGN_KEY_CATALOG_SQL,
+  IBMI_KEY_CONSTRAINT_CATALOG_SQL,
+  pgVisibleIdentifier,
+  renderSqlAlchemyColumns,
+  renderSqlAlchemyForeignKeys,
+  renderSqlAlchemyHasRelation,
+  renderSqlAlchemyIndexes,
+  renderSqlAlchemyKeyConstraints,
+  renderSqlAlchemyRelationNames,
+  renderSqlAlchemyRelationOid,
+  renderSqlAlchemyRelationOids,
+  requestedConstraintType,
+  requestedObjectNames,
+  requestedRelationKinds,
+  requestedVirtualOids,
+  type IbmiForeignKeyRow,
+  type IbmiKeyConstraintRow,
+  type SqlAlchemyReflectionRequest,
+} from '../sql/sqlalchemy-reflection.js';
 
 type SchemaSource = 'proxy-default' | 'startup-options' | 'set-search-path' | 'set-local-search-path';
 
@@ -293,7 +314,7 @@ export class ProxySession {
       return;
     }
 
-    const local = await this.resolveSynthetic(stmt.sql);
+    const local = await this.resolveSynthetic(stmt.sql, portal.parameters);
     if (local) {
       this.validateSynthetic(local);
       portal.synthetic = local;
@@ -587,7 +608,7 @@ export class ProxySession {
       return;
     }
 
-    const synthetic = await this.resolveSynthetic(sql);
+    const synthetic = await this.resolveSynthetic(sql, parameters);
     if (synthetic) { this.sendSynthetic(synthetic, includeDescription); return; }
     if (rawKind === 'set') {
       throw sqlError('0A000', 'This PostgreSQL SET option is not supported by proxy v0.1');
@@ -784,9 +805,19 @@ export class ProxySession {
     }
   }
 
-  private async resolveSynthetic(sql: string): Promise<SyntheticResult | undefined> {
+  private async resolveSynthetic(sql: string, parameters: unknown[] = []): Promise<SyntheticResult | undefined> {
     const env = environmentQuery(sql, config.pg.databaseName, this.currentSchema, config.pg.serverVersion);
     if (env) return env;
+
+    // SQLAlchemy/Alembic PostgreSQL reflection must be resolved from live IBM i
+    // catalogs before pgAdmin-specific handlers and before the generic
+    // pg_catalog firewall. Returning an empty synthetic pg_catalog rowset here
+    // makes Inspector conclude that existing tables/columns/indexes do not
+    // exist, which can silently skip migrations.
+    const sqlalchemyReflection = classifySqlAlchemyReflectionQuery(sql);
+    if (sqlalchemyReflection) {
+      return this.resolveSqlAlchemyReflection(sqlalchemyReflection, sql, parameters);
+    }
 
     // Schema browser queries are keyed by pg_namespace as their PRIMARY
     // relation. Resolve them before the table adapter because pgAdmin schema
@@ -968,6 +999,140 @@ export class ProxySession {
       ?? syntheticCatalog(sql);
   }
 
+  private async resolveSqlAlchemyReflection(
+    request: SqlAlchemyReflectionRequest,
+    sql: string,
+    parameters: unknown[],
+  ): Promise<SyntheticResult> {
+    const schemas = await this.fetchIbmiSchemas();
+    const explicitSchema = /\b(?:pg_catalog\.)?pg_namespace\.nspname\s*=\s*/i.test(sql);
+    const schemaMatches = requestedObjectNames(parameters, schemas.map((row) => row.name));
+    const schemaName = explicitSchema && schemaMatches.length > 0 ? schemaMatches[0]! : this.currentSchema;
+
+    const tableRows = await this.fetchIbmiTables(schemaName);
+    const relationKinds = requestedRelationKinds(parameters);
+    const includeViews = relationKinds.has('v') || relationKinds.has('m');
+    const includeTables = relationKinds.size === 0 || [...relationKinds].some((kind) => ['r', 'p', 'f'].includes(kind));
+    const viewRows = includeViews ? await this.fetchIbmiViews(schemaName) : [];
+    const relations: IbmiTableRow[] = [
+      ...(includeTables ? tableRows : []),
+      ...viewRows.map((view) => ({
+        schema: view.schema,
+        name: view.name,
+        owner: view.owner,
+        type: 'V',
+        text: view.text,
+        longComment: view.longComment,
+        columnCount: view.columnCount,
+      })),
+    ];
+
+    const requestedNames = requestedObjectNames(parameters, relations.map((row) => row.name));
+    const hasBindParameters = /\$\d+/.test(sql);
+
+    if (request.kind === 'relationNames') {
+      const selected = requestedNames.length > 0
+        ? relations.filter((row) => requestedNames.some((name) => sameSqlIdentifier(name, row.name)))
+        : relations;
+      this.logger.debug('SQLAlchemy relation-name reflection served from IBM i', {
+        database: this.client.database, schema: schemaName, returnedRows: selected.length,
+      });
+      return renderSqlAlchemyRelationNames(selected);
+    }
+
+    if (request.kind === 'hasRelation') {
+      const target = requestedNames.length > 0
+        ? relations.find((row) => sameSqlIdentifier(row.name, requestedNames[0]!))
+        : undefined;
+      return renderSqlAlchemyHasRelation(target);
+    }
+
+    if (request.kind === 'relationOids') {
+      // Statement-level Describe happens before Bind. Return only metadata in
+      // that phase instead of accidentally returning every relation for a
+      // filter_names query whose values are not available yet.
+      if (hasBindParameters && parameters.length === 0) return renderSqlAlchemyRelationOids([]);
+      const selected = requestedNames.length > 0
+        ? relations.filter((row) => requestedNames.some((name) => sameSqlIdentifier(name, row.name)))
+        : relations;
+      return renderSqlAlchemyRelationOids(selected.map((row) => ({ oid: tableOid(row.schema, row.name), name: row.name })));
+    }
+
+    if (request.kind === 'relationOidByName') {
+      const target = requestedNames.length > 0
+        ? relations.find((row) => sameSqlIdentifier(row.name, requestedNames[0]!))
+        : undefined;
+      return renderSqlAlchemyRelationOid(target ? { oid: tableOid(target.schema, target.name), name: target.name } : undefined);
+    }
+
+    if (request.kind === 'columns') {
+      if (hasBindParameters && parameters.length === 0) return renderSqlAlchemyColumns('', []);
+      const selectedNames = requestedNames.length > 0 ? requestedNames : relations.map((row) => row.name);
+      let combined: SyntheticResult | undefined;
+      for (const name of selectedNames) {
+        const columns = await this.fetchIbmiColumns(schemaName, name);
+        const rendered = renderSqlAlchemyColumns(name, columns);
+        if (!combined) combined = rendered;
+        else combined.rows.push(...rendered.rows);
+      }
+      const result = combined ?? renderSqlAlchemyColumns('', []);
+      result.tag = `SELECT ${result.rows.length}`;
+      this.logger.debug('SQLAlchemy column reflection served from IBM i', {
+        database: this.client.database, schema: schemaName,
+        tables: selectedNames.map(pgVisibleIdentifier), returnedRows: result.rows.length,
+      });
+      return result;
+    }
+
+    if (request.kind === 'indexes') {
+      if (hasBindParameters && parameters.length === 0) return renderSqlAlchemyIndexes([]);
+      const requestedOids = new Set(requestedVirtualOids(parameters));
+      const selected = tableRows.filter((row) => requestedOids.size === 0 || requestedOids.has(tableOid(row.schema, row.name)));
+      const tableIndexes = [] as Array<{ tableOid: number; indexes: IbmiIndexRow[] }>;
+      for (const table of selected) {
+        tableIndexes.push({ tableOid: tableOid(table.schema, table.name), indexes: await this.fetchIbmiIndexes(schemaName, table.name) });
+      }
+      const result = renderSqlAlchemyIndexes(tableIndexes);
+      this.logger.debug('SQLAlchemy index reflection served from IBM i', {
+        database: this.client.database, schema: schemaName,
+        requestedOids: [...requestedOids], returnedRows: result.rows.length,
+      });
+      return result;
+    }
+
+    if (request.kind === 'foreignKeys') {
+      if (hasBindParameters && parameters.length === 0) return renderSqlAlchemyForeignKeys('', []);
+      const selectedNames = requestedNames.length > 0 ? requestedNames : tableRows.map((row) => row.name);
+      let combined: SyntheticResult | undefined;
+      for (const name of selectedNames) {
+        const foreignKeys = await this.fetchIbmiForeignKeys(schemaName, name);
+        const rendered = renderSqlAlchemyForeignKeys(name, foreignKeys);
+        if (!combined) combined = rendered;
+        else combined.rows.push(...rendered.rows);
+      }
+      const result = combined ?? renderSqlAlchemyForeignKeys('', []);
+      result.tag = `SELECT ${result.rows.length}`;
+      return result;
+    }
+
+    // SQLAlchemy primary/unique constraint reflection is also OID-based and is
+    // needed by ORM migration tools that inspect constraints before ALTER.
+    if (hasBindParameters && parameters.length === 0) return renderSqlAlchemyKeyConstraints(0, '', [], 'p');
+    const constraintType = requestedConstraintType(parameters) ?? 'p';
+    const requestedOids = new Set(requestedVirtualOids(parameters));
+    const selected = tableRows.filter((row) => requestedOids.size === 0 || requestedOids.has(tableOid(row.schema, row.name)));
+    let combined: SyntheticResult | undefined;
+    for (const table of selected) {
+      const constraints = await this.fetchIbmiKeyConstraints(schemaName, table.name);
+      const rendered = renderSqlAlchemyKeyConstraints(tableOid(table.schema, table.name), table.name, constraints, constraintType);
+      if (!combined) combined = rendered;
+      else combined.rows.push(...rendered.rows);
+    }
+    const result = combined ?? renderSqlAlchemyKeyConstraints(0, '', [], constraintType);
+    result.tag = `SELECT ${result.rows.length}`;
+    return result;
+  }
+
   private async fetchIbmiSchemas(force = false): Promise<IbmiSchemaRow[]> {
     if (!force && this.schemaCache && this.schemaCache.expiresAt > Date.now()) return this.schemaCache.rows;
 
@@ -1085,6 +1250,8 @@ export class ProxySession {
       columnCount: Number(caseInsensitiveValue(row, 'COLUMN_COUNT') ?? 0),
       longComment: nullableString(caseInsensitiveValue(row, 'LONG_COMMENT')),
       text: nullableString(caseInsensitiveValue(row, 'INDEX_TEXT')),
+      columns: splitCatalogColumnNames(nullableString(caseInsensitiveValue(row, 'COLUMN_NAMES'))),
+      filterDefinition: nullableString(caseInsensitiveValue(row, 'SEARCH_CONDITION')),
     })).filter((row: IbmiIndexRow) => row.name.length > 0);
   }
 
@@ -1117,6 +1284,66 @@ export class ProxySession {
       }
     }
     return rows;
+  }
+
+  private async fetchIbmiForeignKeys(schemaName: string, tableName: string): Promise<IbmiForeignKeyRow[]> {
+    const result = await this.executePaged(IBMI_FOREIGN_KEY_CATALOG_SQL, [schemaName, tableName], 0);
+    if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+    const grouped = new Map<string, IbmiForeignKeyRow>();
+    for (const row of result.data) {
+      const constraintSchema = String(caseInsensitiveValue(row, 'CONSTRAINT_SCHEMA') ?? '').trim();
+      const constraintName = String(caseInsensitiveValue(row, 'CONSTRAINT_NAME') ?? '').trim();
+      const key = `${constraintSchema}\u0000${constraintName}`;
+      let item = grouped.get(key);
+      if (!item) {
+        item = {
+          constraintSchema,
+          constraintName,
+          tableSchema: String(caseInsensitiveValue(row, 'TABLE_SCHEMA') ?? '').trim(),
+          tableName: String(caseInsensitiveValue(row, 'TABLE_NAME') ?? '').trim(),
+          columns: [],
+          referencedSchema: String(caseInsensitiveValue(row, 'REFERENCED_TABLE_SCHEMA') ?? '').trim(),
+          referencedTable: String(caseInsensitiveValue(row, 'REFERENCED_TABLE_NAME') ?? '').trim(),
+          referencedColumns: [],
+          updateRule: nullableString(caseInsensitiveValue(row, 'UPDATE_RULE')),
+          deleteRule: nullableString(caseInsensitiveValue(row, 'DELETE_RULE')),
+        };
+        grouped.set(key, item);
+      }
+      const child = nullableString(caseInsensitiveValue(row, 'FK_COLUMN'));
+      const parent = nullableString(caseInsensitiveValue(row, 'REFERENCED_COLUMN'));
+      if (child) item.columns.push(child);
+      if (parent) item.referencedColumns.push(parent);
+    }
+    return [...grouped.values()].filter((row) => row.constraintName && row.tableName && row.referencedTable);
+  }
+
+  private async fetchIbmiKeyConstraints(schemaName: string, tableName: string): Promise<IbmiKeyConstraintRow[]> {
+    const result = await this.executePaged(IBMI_KEY_CONSTRAINT_CATALOG_SQL, [schemaName, tableName], 0);
+    if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+    const grouped = new Map<string, IbmiKeyConstraintRow>();
+    for (const row of result.data) {
+      const constraintSchema = String(caseInsensitiveValue(row, 'CONSTRAINT_SCHEMA') ?? '').trim();
+      const constraintName = String(caseInsensitiveValue(row, 'CONSTRAINT_NAME') ?? '').trim();
+      const constraintType = String(caseInsensitiveValue(row, 'CONSTRAINT_TYPE') ?? '').trim().toUpperCase();
+      if (constraintType !== 'PRIMARY KEY' && constraintType !== 'UNIQUE') continue;
+      const key = `${constraintSchema}\u0000${constraintName}`;
+      let item = grouped.get(key);
+      if (!item) {
+        item = {
+          constraintSchema,
+          constraintName,
+          constraintType,
+          tableSchema: String(caseInsensitiveValue(row, 'TABLE_SCHEMA') ?? '').trim(),
+          tableName: String(caseInsensitiveValue(row, 'TABLE_NAME') ?? '').trim(),
+          columns: [],
+        };
+        grouped.set(key, item);
+      }
+      const column = nullableString(caseInsensitiveValue(row, 'COLUMN_NAME'));
+      if (column) item.columns.push(column);
+    }
+    return [...grouped.values()];
   }
 
   private async executeCreateSchema(plan: CreateSchemaPlan): Promise<void> {
@@ -1334,6 +1561,31 @@ function nullableNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function splitCatalogColumnNames(value: string | null): string[] {
+  if (!value) return [];
+  const out: string[] = [];
+  let token = '';
+  let quoted = false;
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i]!;
+    if (ch === '"') {
+      if (quoted && value[i + 1] === '"') { token += '"'; i++; continue; }
+      quoted = !quoted;
+      continue;
+    }
+    if (ch === ',' && !quoted) {
+      const item = token.trim();
+      if (item) out.push(item);
+      token = '';
+      continue;
+    }
+    token += ch;
+  }
+  const tail = token.trim();
+  if (tail) out.push(tail);
+  return out;
 }
 
 function splitSimpleStatements(sql: string): string[] {

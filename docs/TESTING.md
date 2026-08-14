@@ -124,3 +124,8 @@ PostgreSQL-to-Db2 DDL/scalar translation check OK
 ```
 
 Live acceptance sequence: connect pgAdmin -> expand a live IBM i schema -> expand Tables -> verify existing tables -> create a basic table with a SERIAL identity -> refresh Tables -> execute INSERT/SELECT/DELETE against it.
+
+
+## SQLAlchemy reflection regression (0.1.29)
+
+`scripts/verify-sqlalchemy-reflection.mjs` is executed after compilation during every container build. It creates a fake live IBM i catalog and verifies SQLAlchemy-style table discovery, `has_table`, column metadata, deterministic relation OIDs, existing-index reflection, foreign keys, and primary-key reflection. This guards against the generic pg_catalog firewall silently turning existing IBM i objects into “not found” results for ORM migration tools.
