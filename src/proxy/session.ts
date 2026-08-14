@@ -40,7 +40,7 @@ import {
   type IbmiTableRow,
 } from '../sql/pgadmin-ibmi-table.js';
 import {
-  classifyPgAdminTableChildQuery, IBMI_COLUMN_CATALOG_SQL, IBMI_INDEX_CATALOG_SQL, IBMI_NATIVE_INDEX_CATALOG_SQL,
+  classifyPgAdminTableChildQuery, IBMI_COLUMN_CATALOG_SQL, IBMI_INDEX_CATALOG_SQL, IBMI_INDEX_KEY_CATALOG_SQL, IBMI_NATIVE_INDEX_CATALOG_SQL,
   renderColumnQuery, renderIndexQuery, renderEmptyTableChild,
   type IbmiColumnRow, type IbmiIndexRow,
 } from '../sql/pgadmin-ibmi-table-child.js';
@@ -1500,15 +1500,60 @@ export class ProxySession {
     if (!this.inTransaction) await this.currentJob().execute('COMMIT');
     let rows = this.mapIbmiIndexRows(result.data);
 
-    // QSYS2.SYSINDEXES is the authoritative SQL CREATE INDEX catalog, but
-    // SYSTABLEINDEXSTAT can have the key-column list earlier/more consistently
-    // than the LEFT JOIN projection above. Query it not only when SYSINDEXES is
-    // empty, but also when an index header has a positive key count and no
-    // COLUMN_NAMES. This avoids emitting a malformed empty PostgreSQL
-    // int2vector and also prevents indexes from disappearing in pgAdmin/
-    // SQLAlchemy merely because one IBM i service returned partial metadata.
-    const needsNativeStats = rows.length === 0
-      || rows.some((row) => row.columnCount > 0 && row.columns.length === 0);
+    // QSYS2.SYSINDEXES is the authoritative SQL CREATE INDEX catalog. Its
+    // LEFT JOIN to SYSTABLEINDEXSTAT can still expose a positive key count with
+    // no COLUMN_NAMES, as seen in the live ContextForge migration. Repair that
+    // denormalized gap from SYSKEYS before using SYSTABLEINDEXSTAT as the
+    // broader native/logical-index fallback. This avoids malformed PostgreSQL
+    // int2vector values and, critically, keeps an existing SQL index visible to
+    // SQLAlchemy so migration code does not attempt CREATE INDEX again.
+    // SYSKEYS is the IBM i catalog specifically designed to expose one row
+    // for every SQL-index key column. Prefer it over SYSTABLEINDEXSTAT's
+    // denormalized COLUMN_NAMES text when SYSINDEXES reports an index but its
+    // key list is missing. This is important for SQLAlchemy/Alembic: hiding an
+    // existing index makes migration code issue CREATE INDEX again, which Db2
+    // correctly rejects with SQL0601 / SQLSTATE 42710.
+    const unresolvedSqlIndexes = () => rows.filter((row) => row.columnCount > 0 && row.columns.length === 0);
+    if (unresolvedSqlIndexes().length > 0) {
+      try {
+        const keys = await this.executePaged(IBMI_INDEX_KEY_CATALOG_SQL, [schemaName, tableName], 0);
+        if (!this.inTransaction) await this.currentJob().execute('COMMIT');
+        const byIndex = new Map<string, Array<{ ordinal: number; column: string }>>();
+        for (const keyRow of keys.data) {
+          const indexSchema = String(caseInsensitiveValue(keyRow, 'INDEX_SCHEMA') ?? '').trim();
+          const indexName = String(caseInsensitiveValue(keyRow, 'INDEX_NAME') ?? '').trim();
+          const column = String(caseInsensitiveValue(keyRow, 'COLUMN_NAME') ?? '').trim();
+          const ordinal = Number(caseInsensitiveValue(keyRow, 'ORDINAL_POSITION') ?? 0);
+          if (!indexSchema || !indexName || !column || ordinal <= 0) continue;
+          const key = `${indexSchema.toUpperCase()}\u0000${indexName.toUpperCase()}`;
+          const list = byIndex.get(key) ?? [];
+          list.push({ ordinal, column });
+          byIndex.set(key, list);
+        }
+        let repaired = 0;
+        rows = rows.map((row) => {
+          if (row.columnCount <= 0 || row.columns.length > 0) return row;
+          const keyRows = byIndex.get(`${row.indexSchema.toUpperCase()}\u0000${row.name.toUpperCase()}`);
+          if (!keyRows || keyRows.length === 0) return row;
+          const columns = keyRows.sort((a, b) => a.ordinal - b.ordinal).map((item) => item.column);
+          if (columns.length === 0) return row;
+          repaired += 1;
+          return { ...row, columns, columnCount: row.columnCount || columns.length };
+        });
+        if (repaired > 0) {
+          this.logger.debug('Completed IBM i SQL index key metadata from SYSKEYS', {
+            schema: schemaName, table: tableName, repairedIndexes: repaired,
+          });
+        }
+      } catch (error) {
+        this.logger.warn('IBM i SYSKEYS index-key fallback query failed', {
+          schema: schemaName, table: tableName,
+          error: String((error as Error)?.message ?? error),
+        });
+      }
+    }
+
+    const needsNativeStats = rows.length === 0 || unresolvedSqlIndexes().length > 0;
     if (needsNativeStats) {
       try {
         const native = await this.executePaged(IBMI_NATIVE_INDEX_CATALOG_SQL, [schemaName, tableName], 0);

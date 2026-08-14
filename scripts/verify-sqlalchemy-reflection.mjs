@@ -39,7 +39,12 @@ const indexes = {
 };
 const nativeIndexes = {
   TOOLS: [
-    { INDEX_SCHEMA:'MCPDATA', INDEX_NAME:'IX_TOOLS_VISIBILITY', INDEX_OWNER:'', TABLE_SCHEMA:'MCPDATA', TABLE_NAME:'TOOLS', IS_UNIQUE:'D', COLUMN_COUNT:1, LONG_COMMENT:null, INDEX_TEXT:'INDEX: VISIBILITY', COLUMN_NAMES:'VISIBILITY', SEARCH_CONDITION:null },
+    { INDEX_SCHEMA:'MCPDATA', INDEX_NAME:'IX_TOOLS_VISIBILITY', INDEX_OWNER:'', TABLE_SCHEMA:'MCPDATA', TABLE_NAME:'TOOLS', IS_UNIQUE:'D', COLUMN_COUNT:1, LONG_COMMENT:null, INDEX_TEXT:'INDEX', COLUMN_NAMES:null, SEARCH_CONDITION:null },
+  ],
+};
+const indexKeys = {
+  TOOLS: [
+    { INDEX_SCHEMA:'MCPDATA', INDEX_NAME:'IX_TOOLS_VISIBILITY', COLUMN_NAME:'VISIBILITY', ORDINAL_POSITION:1, ORDERING:'A' },
   ],
 };
 
@@ -136,8 +141,8 @@ assert.deepEqual(String(r.rows[0][4]).split(' ').map(Number), [0]);
 assert.equal(r.rows[0][10], '{"name"}');
 
 // Reproduce the partial-index metadata seen by ContextForge. The proxy must
-// supplement COLUMN_NAMES from SYSTABLEINDEXSTAT rather than send an empty
-// int2vector (which psycopg parses as int('')).
+// recover key columns from SYSKEYS even when both the SYSINDEXES join and
+// SYSTABLEINDEXSTAT.COLUMN_NAMES are NULL; never send an empty int2vector.
 const toolsOid = tableOid('MCPDATA','TOOLS');
 r = await session.resolveSynthetic(indexSql, [String(toolsOid)]);
 assert.equal(r.rows.length, 1);
@@ -209,6 +214,7 @@ function catalog(sql, params) {
   if (/QSYS2\.SYSSCHEMAS/i.test(sql)) return result([{SCHEMA_NAME:'MCPDATA',SCHEMA_OWNER:'MAPESVC',SCHEMA_TEXT:null}]);
   if (/QSYS2\.SYSTABLES/i.test(sql)) return result(String(params[0] ?? '').toUpperCase()==='MCPDATA' ? tables : []);
   if (/QSYS2\.SYSCOLUMNS2/i.test(sql)) return result(columns[String(params[1] ?? '').toUpperCase()] ?? []);
+  if (/FROM QSYS2\.SYSKEYS K/i.test(sql)) return result(indexKeys[String(params[1] ?? '').toUpperCase()] ?? []);
   if (/FROM QSYS2\.SYSINDEXES/i.test(sql)) return result(indexes[String(params[1] ?? '').toUpperCase()] ?? []);
   if (/FROM QSYS2\.SYSTABLEINDEXSTAT/i.test(sql)) return result(nativeIndexes[String(params[1] ?? '').toUpperCase()] ?? []);
   if (/FROM QSYS2\.SYSCST FK/i.test(sql)) return result([{

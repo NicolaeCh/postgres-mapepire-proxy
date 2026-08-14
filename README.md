@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.35 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.35
+podman build -t postgres-mapepire-proxy:0.1.36 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.36
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -198,6 +198,12 @@ ContextForge v1.0.7 serializes database bootstrap with PostgreSQL session adviso
 
 Alembic migrations can define an unbounded PostgreSQL `VARCHAR` foreign-key column that references a sized `VARCHAR(36)` primary key. The proxy now remembers translated parent-column types during the migration session and rewrites dependent foreign-key columns to the exact Db2 type required by the referenced key before executing the dependent `CREATE TABLE`.
 
+
+## ContextForge index reflection hardening (0.1.36)
+
+Release 0.1.36 fixes a live IBM i catalog edge case where `QSYS2.SYSINDEXES` reported an existing SQL index but `QSYS2.SYSTABLEINDEXSTAT.COLUMN_NAMES` was NULL. SQLAlchemy therefore could not see the index and ContextForge attempted to create it again, causing IBM i `SQL0601` / SQLSTATE `42710` and then PostgreSQL failed-transaction state `25P02`.
+
+For SQL-created indexes the proxy now repairs missing key metadata from `QSYS2.SYSKEYS`, which exposes one row per index key column and an `ORDINAL_POSITION`. `SYSTABLEINDEXSTAT` remains the secondary broader fallback for native/logical access paths. Existing advisory-lock semantics are unchanged.
 
 ## ContextForge migration hardening (0.1.34)
 

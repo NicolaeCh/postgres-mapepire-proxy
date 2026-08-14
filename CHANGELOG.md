@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.36 - 2026-08-14
+
+- Fix ContextForge/SQLAlchemy repeatedly recreating an IBM i SQL index that already exists when `SYSTABLEINDEXSTAT.COLUMN_NAMES` is NULL.
+- Use `QSYS2.SYSKEYS` as the authoritative repair source for SQL index key columns, ordered by `ORDINAL_POSITION`; retain `SYSTABLEINDEXSTAT` only as the broader secondary fallback for native/logical access paths.
+- Prevent the sequence `reflection omits index` -> Alembic `CREATE INDEX` -> IBM i `SQL0601 / SQLSTATE 42710` -> PostgreSQL `25P02`.
+- Preserve the 0.1.35 advisory-lock/session-close behavior; live logs confirm locks are released on session close and can immediately be reacquired.
+- Strengthen the SQLAlchemy build verifier so `SYSINDEXES` and `SYSTABLEINDEXSTAT` both expose a missing key list while `SYSKEYS` repairs the index.
+
 ## 0.1.35 - 2026-08-14
 
 - Fix the container build regression in `verify-postgres-alter-table.mjs`: the CREATE OR REPLACE TABLE regression now accepts both valid whitespace forms `TABLE TOOLS (` and `TABLE TOOLS(`.
