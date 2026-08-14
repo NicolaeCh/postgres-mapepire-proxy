@@ -16,7 +16,7 @@ Decision: use the official floating major-LTS tag `node:24-bookworm-slim`. As ve
 - Client source: https://github.com/Mapepire-IBMi/mapepire-js
 - npm package: https://www.npmjs.com/package/@ibm/mapepire-js
 
-Decision: `@ibm/mapepire-js` 0.6.1. The official client is TypeScript/pure JavaScript and uses persistent Mapepire transport. The documented query API provides `execute()` and `fetchMore()` paging. The project deliberately wraps `SQLJob` with session-affinity rather than sending each PostgreSQL statement through the general Mapepire pool because PostgreSQL transactions require backend-session affinity.
+Decision: `@ibm/mapepire-js` 0.6.1. The official client is TypeScript/pure JavaScript and uses persistent Mapepire transport. The documented query API provides `execute()` and `fetchMore()` paging and recommends pooling/reuse. The proxy keeps a bounded SQLJob pool and implements transaction-aware affinity: jobs are shared across idle/autocommit logical PostgreSQL sessions but pinned for the lifetime of an explicit IBM i-backed transaction. `MAPEPIRE_BACKEND_LEASE_MODE=session` remains available for workloads that require physical backend-session state.
 
 ## PostgreSQL gateway
 

@@ -36,7 +36,7 @@ pg.server.on('listening', () => {
 pg.server.on('close', () => { pgListening = false; });
 pg.server.listen(config.pg.port, config.pg.host);
 
-const health = createHealthServer(config.health.host, config.health.port, pool, () => pgListening);
+const health = createHealthServer(config.health.host, config.health.port, pool, () => pgListening, pg.getClientCount);
 logger.info('Health listener ready', { host: config.health.host, port: config.health.port });
 
 let shuttingDown = false;

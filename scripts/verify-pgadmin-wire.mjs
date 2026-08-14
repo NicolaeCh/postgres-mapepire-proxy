@@ -10,6 +10,7 @@ process.env.PG_PROXY_USER ??= 'proxyuser';
 process.env.PG_PROXY_PASSWORD ??= 'proxypass';
 process.env.DEFAULT_SCHEMA ??= 'MYLIB';
 process.env.PG_SERVER_VERSION ??= '14.0';
+process.env.MAPEPIRE_BACKEND_LEASE_MODE = 'session';
 
 const { ProxySession } = await import('../dist/src/proxy/session.js');
 
@@ -23,6 +24,8 @@ const fakeJob = {
   execute: async () => ({ has_results: false, data: [], is_done: true, update_count: 0 }),
 };
 const fakePool = {
+  schemaCapabilities: () => undefined,
+  stats: () => ({ total: 1, maxSize: 1, creating: 0, idle: 0, leased: 1, waiters: 0, ready: 1, unhealthy: 0, availableSlots: 0, saturated: false }),
   acquire: async () => fakeJob,
   release: async () => {},
   invalidate: async () => {},

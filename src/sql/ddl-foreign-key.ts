@@ -137,6 +137,20 @@ export class DdlForeignKeyTypeRegistry {
     this.types.set(typeKey(table.schema, table.table, match[2]!), type);
   }
 
+  registerAlterSetDataType(sql: string, currentSchema: string): void {
+    const ident = String.raw`(?:(?:"(?:[^"]|"")*")|(?:[A-Za-z_][A-Za-z0-9_$#@]*))`;
+    const relation = String.raw`((?:${ident})(?:\s*\.\s*(?:${ident}))?)`;
+    const match = new RegExp(
+      String.raw`^\s*ALTER\s+TABLE\s+${relation}\s+ALTER\s+COLUMN\s+(${ident})\s+SET\s+DATA\s+TYPE\s+([\s\S]+)$`,
+      'i',
+    ).exec(sql);
+    if (!match) return;
+    const table = splitQualifiedName(match[1]!, currentSchema);
+    const type = extractTypePrefix(match[3]!);
+    if (!type) return;
+    this.types.set(typeKey(table.schema, table.table, match[2]!), type);
+  }
+
   beginTransaction(): void {
     if (this.transactionSnapshot) return;
     this.transactionSnapshot = new Map(this.types);

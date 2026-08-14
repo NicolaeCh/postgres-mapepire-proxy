@@ -216,4 +216,20 @@ describe('PostgreSQL DDL compatibility', () => {
     expect(sql).toContain("TEXT_VALUE VARCHAR(20) DEFAULT '1'");
   });
 
+  it('maps PostgreSQL ALTER COLUMN TYPE to Db2 for i SET DATA TYPE', () => {
+    expect(translateSql('alter table token_usage_logs alter column id type integer', opts).sql)
+      .toBe('ALTER TABLE TOKEN_USAGE_LOGS ALTER COLUMN ID SET DATA TYPE INTEGER');
+    expect(translateSql('alter table app.t alter c type varchar', opts).sql)
+      .toBe('ALTER TABLE APP.T ALTER COLUMN C SET DATA TYPE VARCHAR(1024)');
+    expect(translateSql('alter table app.t alter column payload type jsonb', opts).sql)
+      .toBe('ALTER TABLE APP.T ALTER COLUMN PAYLOAD SET DATA TYPE CLOB(2G) CCSID 1208');
+  });
+
+  it('rejects PostgreSQL ALTER COLUMN TYPE USING/COLLATE instead of dropping semantics', () => {
+    expect(() => translateSql('alter table t alter column id type integer using id::integer', opts))
+      .toThrow(/TYPE .* USING/i);
+    expect(() => translateSql('alter table t alter column name type varchar(100) collate "C"', opts))
+      .toThrow(/COLLATE/i);
+  });
+
 });

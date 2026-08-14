@@ -83,17 +83,18 @@ For application-owned schemas, the preferred deployment is an IBM i SQL schema c
 
 The proxy deliberately does **not** create journals or start journaling in an existing library automatically. Journal receiver placement, retention, ASP selection, authority, and operational policy are persistent IBM i administration decisions. Use `IBMI_AUTO_CREATE_CURRENT_SCHEMA=true` only to provision a **missing** SQL schema; use `IBMI_REQUIRE_TRANSACTIONAL_SCHEMA=true` to fail fast when the selected schema is not transaction-ready.
 
-## Mapepire session-affinity pool
+## Mapepire backend pool
 
 | Variable | Default | Purpose |
 |---|---:|---|
 | `MAPEPIRE_POOL_STARTING_SIZE` | `4` | Jobs opened during startup. |
 | `MAPEPIRE_POOL_MAX_SIZE` | `12` | Hard cap including in-flight job creations. |
-| `MAPEPIRE_POOL_ACQUIRE_TIMEOUT_MS` | `30000` | Maximum wait for a leased SQLJob. |
+| `MAPEPIRE_POOL_ACQUIRE_TIMEOUT_MS` | `30000` | Maximum wait for a backend SQLJob lease. |
+| `MAPEPIRE_BACKEND_LEASE_MODE` | `transaction` | `transaction` multiplexes logical clients and pins only active transactions; `session` preserves one-job-per-client affinity. |
 | `MAPEPIRE_RECONNECT_RETRIES` | `0` | Optional retry count for known-safe idempotent reads outside transactions. |
 | `MAPEPIRE_FETCH_SIZE` | `500` | Rows requested per Mapepire cursor page. |
 
-One `SQLJob` is leased to one PostgreSQL session for that session's lifetime. It is never shared concurrently. On release the proxy issues defensive `ROLLBACK` and restores `IBMI_CURRENT_SCHEMA` before returning the job to the idle pool.
+In default `transaction` mode a SQLJob is never used concurrently, but it can serve different logical PostgreSQL sessions at different times. Autocommit work returns the job immediately after commit/rollback; an explicit PostgreSQL transaction pins it until transaction end. In `session` mode one SQLJob remains attached to the PostgreSQL connection for its lifetime. On every return the proxy issues defensive `ROLLBACK` and restores `IBMI_CURRENT_SCHEMA`.
 
 ## Mapepire JDBC / Toolbox properties
 

@@ -2,7 +2,9 @@ import http from 'node:http';
 import type { SessionJobPool } from './mapepire/session-pool.js';
 import { config } from './config.js';
 
-export function createHealthServer(host: string, port: number, pool: SessionJobPool, pgReady: () => boolean) {
+export function createHealthServer(
+  host: string, port: number, pool: SessionJobPool, pgReady: () => boolean, pgClientCount: () => number = () => 0,
+) {
   const server = http.createServer((req, res) => {
     res.setHeader('content-type', 'application/json');
     if (req.url === '/healthz') {
@@ -16,7 +18,7 @@ export function createHealthServer(host: string, port: number, pool: SessionJobP
       res.end(JSON.stringify({
         status: ready ? 'ready' : 'not-ready',
         pgListening: pgReady(),
-        postgres: { database: config.pg.databaseName, defaultSchema: config.ibmi.currentSchema },
+        postgres: { database: config.pg.databaseName, defaultSchema: config.ibmi.currentSchema, connectedClients: pgClientCount(), backendLeaseMode: config.ibmi.backendLeaseMode },
         transaction: {
           jdbcAutoCommit: config.ibmi.jdbc['auto commit'],
           isolation: config.ibmi.jdbc['transaction isolation'],
@@ -30,7 +32,7 @@ export function createHealthServer(host: string, port: number, pool: SessionJobP
     if (req.url === '/stats') {
       res.statusCode = 200;
       res.end(JSON.stringify({
-        postgres: { database: config.pg.databaseName, defaultSchema: config.ibmi.currentSchema },
+        postgres: { database: config.pg.databaseName, defaultSchema: config.ibmi.currentSchema, connectedClients: pgClientCount(), backendLeaseMode: config.ibmi.backendLeaseMode },
         transaction: {
           jdbcAutoCommit: config.ibmi.jdbc['auto commit'],
           isolation: config.ibmi.jdbc['transaction isolation'],

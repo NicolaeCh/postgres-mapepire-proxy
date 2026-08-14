@@ -51,6 +51,16 @@ function lobIndexPolicy(): LobIndexPolicy {
   return value;
 }
 
+const backendLeaseModes = ['transaction', 'session'] as const;
+type BackendLeaseMode = (typeof backendLeaseModes)[number];
+function backendLeaseMode(): BackendLeaseMode {
+  const value = str('MAPEPIRE_BACKEND_LEASE_MODE', 'transaction') as BackendLeaseMode;
+  if (!backendLeaseModes.includes(value)) {
+    throw new Error(`MAPEPIRE_BACKEND_LEASE_MODE must be one of ${backendLeaseModes.join(',')}`);
+  }
+  return value;
+}
+
 const authModes = ['none', 'cleartextPassword', 'md5Password'] as const;
 type AuthMode = (typeof authModes)[number];
 function authMode(): AuthMode {
@@ -156,6 +166,10 @@ export const config = {
     poolStartingSize: num('MAPEPIRE_POOL_STARTING_SIZE', 4),
     poolMaxSize: num('MAPEPIRE_POOL_MAX_SIZE', 12),
     poolAcquireTimeoutMs: num('MAPEPIRE_POOL_ACQUIRE_TIMEOUT_MS', 30_000),
+    // transaction: multiplex idle/autocommit PostgreSQL sessions over the IBM i
+    // jobs and pin a job only while an explicit transaction is active.
+    // session: legacy one-Mapepire-job-per-PostgreSQL-connection affinity.
+    backendLeaseMode: backendLeaseMode(),
     reconnectRetries: num('MAPEPIRE_RECONNECT_RETRIES', 0),
     fetchSize: num('MAPEPIRE_FETCH_SIZE', 500),
   },

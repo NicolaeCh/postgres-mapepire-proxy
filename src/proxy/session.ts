@@ -133,12 +133,8 @@ export class ProxySession {
   ) {}
 
   async initialize(): Promise<void> {
-    this.job = await this.pool.acquire();
-
     const startupPath = parseStartupSearchPath(this.client.options);
     if (startupPath) {
-      this.currentSchemaCapabilities = await this.pool.prepareSchema(this.currentJob(), startupPath.schema);
-      await this.currentJob().execute(`SET CURRENT SCHEMA ${quoteDb2Identifier(startupPath.schema)}`);
       this.currentSchema = startupPath.schema;
       this.schemaSource = 'startup-options';
       if (startupPath.ignored.length > 0) {
@@ -148,18 +144,32 @@ export class ProxySession {
           ignoredSearchPathEntries: startupPath.ignored,
         });
       }
-    } else {
-      this.currentSchemaCapabilities = await this.pool.prepareSchema(this.currentJob(), this.currentSchema);
-    }
-    await this.currentJob().execute('COMMIT');
-    this.backendCurrentSchema = await this.readBackendCurrentSchema();
-    if (this.backendCurrentSchema && !sameSqlIdentifier(this.backendCurrentSchema, this.currentSchema)) {
-      throw new Error(`IBM i CURRENT SCHEMA mismatch: expected ${this.currentSchema}, backend reports ${this.backendCurrentSchema}`);
     }
 
-    this.logger.debug('Mapepire job leased to PostgreSQL session', {
+    // Transaction-pooled mode deliberately does not dedicate an IBM i SQLJob
+    // to every connected PostgreSQL client.  The default schema was already
+    // validated when SessionJobPool initialized, so ordinary logins can stay
+    // purely logical until a statement actually needs Db2.  A non-default
+    // startup search_path is validated with a short lease and then released.
+    const cached = !startupPath && sameSqlIdentifier(this.currentSchema, config.ibmi.currentSchema)
+      ? this.pool.schemaCapabilities()
+      : undefined;
+    if (cached) {
+      this.currentSchemaCapabilities = cached;
+    } else {
+      await this.ensureBackendJob();
+      if (config.ibmi.backendLeaseMode === 'transaction') await this.releaseBackendIfIdle('session initialization');
+    }
+
+    // Legacy/session-affinity mode remains available for applications that
+    // intentionally depend on backend-session-local state.
+    if (config.ibmi.backendLeaseMode === 'session' && !this.job) await this.ensureBackendJob();
+
+    this.logger.debug('PostgreSQL logical session initialized', {
       user: this.client.user,
       database: this.client.database,
+      backendLeaseMode: config.ibmi.backendLeaseMode,
+      backendLeased: Boolean(this.job),
       currentSchema: this.currentSchema,
       backendCurrentSchema: this.backendCurrentSchema,
       schemaSource: this.schemaSource,
@@ -216,19 +226,160 @@ export class ProxySession {
 
   private async handleMessage(type: string, body: Buffer): Promise<void> {
     if (this.closed) return;
-    switch (type) {
-      case 'Q': await this.simpleQuery(decodeQuery(body)); break;
-      case 'P': this.parse(body); break;
-      case 'B': this.bind(body); break;
-      case 'D': await this.describe(body); break;
-      case 'E': await this.executePortal(body); break;
-      case 'S': this.extendedError = false; this.send(readyForQuery(this.txStatus())); break;
-      case 'C': this.closePrepared(body); break;
-      case 'H': break; // Flush: responses are sent immediately.
-      case 'X': await this.close(); break;
-      default:
-        this.send(errorResponse({ code: '0A000', message: `Frontend message ${type} is not supported` }));
+
+    // In transaction-pooled mode a backend is checked out only for protocol
+    // messages that can actually reach IBM i.  Explicit PostgreSQL
+    // transactions keep that lease until COMMIT/ROLLBACK; autocommit work
+    // returns it as soon as the frontend message finishes.
+    const needsBackend = config.ibmi.backendLeaseMode === 'session'
+      ? true
+      : this.frontendMessageNeedsBackend(type, body);
+    if (needsBackend) await this.ensureBackendJob();
+
+    try {
+      switch (type) {
+        case 'Q': await this.simpleQuery(decodeQuery(body)); break;
+        case 'P': this.parse(body); break;
+        case 'B': this.bind(body); break;
+        case 'D': await this.describe(body); break;
+        case 'E': await this.executePortal(body); break;
+        case 'S': this.extendedError = false; this.send(readyForQuery(this.txStatus())); break;
+        case 'C': this.closePrepared(body); break;
+        case 'H': break; // Flush: responses are sent immediately.
+        case 'X': await this.close(); break;
+        default:
+          this.send(errorResponse({ code: '0A000', message: `Frontend message ${type} is not supported` }));
+      }
+    } finally {
+      if (config.ibmi.backendLeaseMode === 'transaction') {
+        await this.releaseBackendIfIdle(`frontend ${frontendMessageName(type)}`);
+      }
     }
+  }
+
+  private frontendMessageNeedsBackend(type: string, body: Buffer): boolean {
+    if (this.closed) return false;
+
+    if (type === 'Q') {
+      return this.queryNeedsBackend(decodeQuery(body));
+    }
+
+    if (type === 'D') {
+      try {
+        const d = decodeDescribe(body);
+        const stmt = d.target === 'S'
+          ? this.prepared.get(d.name)
+          : (() => {
+              const portal = this.portals.get(d.name);
+              return portal ? this.prepared.get(portal.statementName) : undefined;
+            })();
+        if (!stmt) return false; // describe() will return the protocol error locally.
+        if (parsePgAdvisoryLockQuery(stmt.sql)) return false;
+        if (parseSetConfigSearchPath(stmt.sql, config.ibmi.currentSchema)) return false;
+        if (environmentQuery(stmt.sql, config.pg.databaseName, this.currentSchema, config.pg.serverVersion)) return false;
+        if (this.returningFields(stmt.sql)) return false;
+        if (!statementMayReturnRows(classify(stmt.sql))) return false;
+        // Statement Describe for an unbound Db2 rowset is rejected locally;
+        // portal Describe materializes a read rowset and therefore needs IBM i.
+        return d.target === 'P';
+      } catch {
+        return true;
+      }
+    }
+
+    if (type === 'E') {
+      try {
+        const e = decodeExecute(body);
+        const portal = this.portals.get(e.portal);
+        if (!portal) return false; // executePortal will return a protocol error locally.
+        if (portal.synthetic || portal.bufferedDb2) return false;
+        const stmt = this.prepared.get(portal.statementName);
+        if (!stmt) return false;
+        if (parsePgAdvisoryLockQuery(stmt.sql)) return false;
+        if (environmentQuery(stmt.sql, config.pg.databaseName, this.currentSchema, config.pg.serverVersion)) return false;
+        return true;
+      } catch {
+        return true;
+      }
+    }
+
+    // Parse/Bind/Close/Sync/Flush and Terminate are maintained entirely by the
+    // PostgreSQL protocol/session layer.
+    return false;
+  }
+
+  private queryNeedsBackend(sql: string): boolean {
+    const statements = splitSimpleStatements(sql);
+    if (statements.length > 1) return statements.some((statement) => this.queryNeedsBackend(statement));
+
+    const statement = statements[0] ?? sql;
+    if (!statement.trim()) return false;
+    if (parsePgAdvisoryLockQuery(statement)) return false;
+    if (parsePgDeallocate(statement)) return false;
+    if (parsePgTableOwnerDdl(statement)) return false;
+    if (isPgSchemaComment(statement) || isPgSchemaPrivilegeDdl(statement)) return false;
+    if (environmentQuery(statement, config.pg.databaseName, this.currentSchema, config.pg.serverVersion)) return false;
+
+    const kind = classify(statement);
+    if (kind === 'begin') return false;
+    if ((kind === 'commit' || kind === 'rollback') && !this.job) return false;
+    if (this.transactionFailed && kind !== 'commit' && kind !== 'rollback') return false;
+
+    // Unknown SET options are rejected locally. search_path/set_config are the
+    // exceptions because they must validate/replay IBM i CURRENT SCHEMA.
+    if (kind === 'set'
+        && !parseSearchPathCommand(statement, config.ibmi.currentSchema)
+        && !parseSetConfigSearchPath(statement, config.ibmi.currentSchema)) return false;
+
+    const savepoint = parsePgSavepointCommand(statement);
+    if (savepoint && !this.inTransaction) return false;
+    return true;
+  }
+
+  private async ensureBackendJob(): Promise<SQLJobInstance> {
+    if (this.job) return this.job;
+
+    const job = await this.pool.acquire();
+    this.job = job;
+    try {
+      // Replay the proxy-owned session state on every checkout.  This is the
+      // essential invariant that makes transaction pooling safe for normal
+      // PostgreSQL sessions while still allowing a smaller IBM i job pool.
+      this.currentSchemaCapabilities = await this.pool.prepareSchema(
+        job, this.currentSchema, false, !this.inTransaction,
+      );
+      await job.execute(`SET CURRENT SCHEMA ${quoteDb2Identifier(this.currentSchema)}`);
+      // Mapepire JDBC auto-commit is disabled. End the tiny state-replay unit of
+      // work before any user transaction begins on a newly checked-out job.
+      await job.execute('COMMIT');
+      this.backendCurrentSchema = this.currentSchema;
+      this.logger.debug('Mapepire backend leased to PostgreSQL logical session', {
+        database: this.client.database,
+        currentSchema: this.currentSchema,
+        inTransaction: this.inTransaction,
+        backendLeaseMode: config.ibmi.backendLeaseMode,
+        pool: this.pool.stats(),
+      });
+      return job;
+    } catch (error) {
+      if (this.job === job) this.job = undefined;
+      this.backendCurrentSchema = undefined;
+      await this.pool.invalidate(job, error);
+      throw error;
+    }
+  }
+
+  private async releaseBackendIfIdle(reason: string): Promise<void> {
+    if (!this.job || this.inTransaction || config.ibmi.backendLeaseMode === 'session') return;
+    const job = this.job;
+    this.job = undefined;
+    this.backendCurrentSchema = undefined;
+    await this.pool.release(job);
+    this.logger.debug('Returned Mapepire backend after PostgreSQL autocommit work', {
+      database: this.client.database,
+      reason,
+      pool: this.pool.stats(),
+    });
   }
 
   private parse(body: Buffer): void {
@@ -533,14 +684,14 @@ export class ProxySession {
     }
     if (rawKind === 'commit') {
       if (this.transactionFailed) {
-        await this.currentJob().execute('ROLLBACK');
+        if (this.job) await this.job.execute('ROLLBACK');
         this.inTransaction = false; this.transactionFailed = false;
         this.ddlForeignKeyTypes.rollbackTransaction();
         this.ddlTableDefinitions.rollbackTransaction();
         await this.restoreLocalSearchPath();
         this.send(commandComplete('ROLLBACK'));
       } else {
-        await this.currentJob().execute('COMMIT');
+        if (this.job) await this.job.execute('COMMIT');
         this.inTransaction = false;
         this.ddlForeignKeyTypes.commitTransaction();
         this.ddlTableDefinitions.commitTransaction();
@@ -550,7 +701,7 @@ export class ProxySession {
       return;
     }
     if (rawKind === 'rollback') {
-      await this.currentJob().execute('ROLLBACK');
+      if (this.job) await this.job.execute('ROLLBACK');
       this.inTransaction = false; this.transactionFailed = false;
       this.ddlForeignKeyTypes.rollbackTransaction();
       this.ddlTableDefinitions.rollbackTransaction();
@@ -794,8 +945,10 @@ export class ProxySession {
       } else {
         this.ddlForeignKeyTypes.registerCreateTable(translation.sql, this.currentSchema);
         this.ddlForeignKeyTypes.registerAlterAddColumn(translation.sql, this.currentSchema);
+        this.ddlForeignKeyTypes.registerAlterSetDataType(translation.sql, this.currentSchema);
         this.ddlTableDefinitions.registerCreateTable(translation.sql, this.currentSchema);
         this.ddlTableDefinitions.registerAlterAddColumn(translation.sql, this.currentSchema);
+        this.ddlTableDefinitions.invalidateAlterSetDataType(translation.sql, this.currentSchema);
       }
 
       // PostgreSQL autocommit semantics require the backend transaction to be
@@ -887,10 +1040,12 @@ export class ProxySession {
     const restore = this.localSchemaRestore;
     if (!restore) return;
     this.localSchemaRestore = undefined;
-    await this.currentJob().execute(`SET CURRENT SCHEMA ${quoteDb2Identifier(restore.schema)}`);
-    await this.currentJob().execute('COMMIT');
+    if (this.job) {
+      await this.job.execute(`SET CURRENT SCHEMA ${quoteDb2Identifier(restore.schema)}`);
+      await this.job.execute('COMMIT');
+    }
     this.currentSchema = restore.schema;
-    this.backendCurrentSchema = await this.readBackendCurrentSchema();
+    this.backendCurrentSchema = this.job ? await this.readBackendCurrentSchema() : undefined;
     this.schemaSource = restore.source;
     this.currentSchemaCapabilities = restore.capabilities;
     this.logger.debug('Restored PostgreSQL session search_path after SET LOCAL transaction scope', {
@@ -987,8 +1142,10 @@ export class ProxySession {
         if (!retry) throw error;
         attempt++;
         const failed = this.currentJob();
+        this.job = undefined;
+        this.backendCurrentSchema = undefined;
         await this.pool.invalidate(failed, error);
-        this.job = await this.pool.acquire();
+        await this.ensureBackendJob();
         this.logger.warn('Retrying idempotent read after Mapepire transport failure', { attempt });
       }
     }

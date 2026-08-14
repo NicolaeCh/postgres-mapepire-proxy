@@ -27,8 +27,9 @@ export class ProxyGatewayConnection extends PostgresConnection {
     this.isAuthenticated = true;
     this.sendAuthenticationOk();
 
-    // Keep the frontend blocked in startup state while the IBM i SQLJob is
-    // leased and the custom PostgreSQL wire parser is attached.
+    // Keep the frontend blocked in startup state while the logical proxy session
+    // is initialized and the custom PostgreSQL wire parser is attached. In
+    // transaction lease mode this intentionally does not require a SQLJob.
     this.socket.pause();
     try {
       await this.options.onAuthenticated?.(this.state);

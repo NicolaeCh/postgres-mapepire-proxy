@@ -221,6 +221,23 @@ export class DdlTableDefinitionRegistry {
     stored.createSql = rebuildCreate(parsed, definitions, false);
   }
 
+  invalidateAlterSetDataType(sql: string, currentSchema: string): void {
+    const pattern = new RegExp(
+      String.raw`^\s*ALTER\s+TABLE\s+${RELATION}\s+ALTER\s+COLUMN\s+${IDENT}\s+SET\s+DATA\s+TYPE\b`,
+      'i',
+    );
+    const match = pattern.exec(sql);
+    if (!match) return;
+    const first = match[1]!;
+    const second = match[2];
+    const schema = normalizeIdentifier(second ? first : currentSchema);
+    const table = normalizeIdentifier(second ?? first);
+    // The exact CREATE definition is no longer trustworthy after a datatype
+    // change. Drop it rather than allowing a later column-rename emulation to
+    // recreate the table with stale column attributes.
+    this.tables.delete(tableKey(schema, table));
+  }
+
   planRename(request: PgColumnRename, systemColumnName: string): ColumnRenamePlan | undefined {
     const stored = this.tables.get(tableKey(request.schema, request.table));
     if (!stored) return undefined;

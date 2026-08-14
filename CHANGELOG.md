@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.38 - 2026-08-14
+
+### Generic PostgreSQL concurrency / IBM i backend-pooling correction
+
+- Replaced the one-Mapepire-SQLJob-per-PostgreSQL-connection model with transaction-aware backend multiplexing by default. Logical PostgreSQL sessions no longer consume IBM i jobs while idle, while polling proxy-local advisory locks, or while maintaining proxy-local prepared statement/portal state.
+- Explicit PostgreSQL transactions pin one Mapepire SQLJob from the first IBM i-backed statement until COMMIT/ROLLBACK. Autocommit work checks out a job only for the operation and returns it after the implicit commit/rollback.
+- Added `MAPEPIRE_BACKEND_LEASE_MODE=transaction|session`; `transaction` is the scalable default and `session` preserves legacy backend-session affinity for applications that intentionally depend on IBM i session-local state.
+- Backend checkout replays the proxy-owned `CURRENT SCHEMA` state and defensively terminates the state-replay unit of work before application SQL. Job release still rolls back residual work and resets the default schema.
+- `/readyz` and `/stats` now report PostgreSQL connected-client count, backend lease mode, Mapepire pool maximum, available slots, and saturation state. Pool-acquire timeout diagnostics now include total/max/leased/idle/waiter counts.
+- Added a build-time multiplexing contract that initializes 32 logical PostgreSQL sessions against a one-job fake backend and proves that login/advisory-lock polling consumes no Mapepire leases, while transaction work pins exactly one backend until rollback.
+
+### Generic PostgreSQL DDL translation correction
+
+- PostgreSQL `ALTER TABLE ... ALTER [COLUMN] ... TYPE ...` is translated to Db2 for i `ALTER TABLE ... ALTER COLUMN ... SET DATA TYPE ...`.
+- Type aliases continue through the existing Db2 type mapper (`VARCHAR` length default, JSONB-to-CLOB, and related rules).
+- PostgreSQL `ALTER COLUMN TYPE ... USING` and `... COLLATE` are rejected with SQLSTATE `0A000` rather than silently dropping conversion semantics.
+- DDL metadata registries are updated/invalidated after datatype changes so later foreign-key and rename emulation cannot reuse stale type/table definitions.
+
 ## 0.1.37 - 2026-08-14
 
 - Fix live `SQ20483 / SQLSTATE 4274K` from `QSYS2.GENERATE_SQL` when an IBM i release/PTF level does not expose newer optional named arguments such as `ACTIVATE_ACCESS_CONTROL_OPTION`.

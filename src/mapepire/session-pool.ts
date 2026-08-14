@@ -11,21 +11,24 @@ interface Waiter {
 
 export interface PoolStats {
   total: number;
+  maxSize: number;
   creating: number;
   idle: number;
   leased: number;
   waiters: number;
   ready: number;
   unhealthy: number;
+  availableSlots: number;
+  saturated: boolean;
 }
 
 /**
- * A session-affinity pool for Mapepire SQLJob objects.
+ * A bounded pool for Mapepire SQLJob objects.
  *
- * Mapepire's built-in Pool is ideal for stateless query dispatch. A PostgreSQL
- * connection needs stronger affinity: BEGIN/COMMIT/ROLLBACK, CURRENT SCHEMA and
- * prepared work must remain on the same Db2 job. This pool therefore leases one
- * SQLJob for the lifetime of each PostgreSQL session.
+ * ProxySession decides the affinity policy. In the default transaction-pooled
+ * mode an autocommit statement checks out a job only while IBM i work is being
+ * executed, while an explicit PostgreSQL transaction pins one job until its
+ * COMMIT/ROLLBACK. Legacy session affinity is still available by configuration.
  */
 export class SessionJobPool {
   private idle: SQLJobInstance[] = [];
@@ -218,7 +221,15 @@ export class SessionJobPool {
       const timer = setTimeout(() => {
         const idx = this.waiters.findIndex((w) => w.timer === timer);
         if (idx >= 0) this.waiters.splice(idx, 1);
-        reject(new Error(`Timed out waiting ${this.acquireTimeoutMs} ms for Mapepire job`));
+        const stats = this.stats();
+        this.logger.warn('Timed out waiting for Mapepire backend lease', {
+          acquireTimeoutMs: this.acquireTimeoutMs,
+          ...stats,
+        });
+        reject(Object.assign(new Error(
+          `Timed out waiting ${this.acquireTimeoutMs} ms for Mapepire job ` +
+          `(total=${stats.total}, max=${stats.maxSize}, leased=${stats.leased}, idle=${stats.idle}, waiters=${stats.waiters})`,
+        ), { sqlstate: '53300' }));
       }, this.acquireTimeoutMs);
       this.waiters.push({ resolve, reject, timer });
     });
@@ -281,14 +292,18 @@ export class SessionJobPool {
   stats(): PoolStats {
     const ready = [...this.all].filter((j) => j.getStatus() === 'ready').length;
     const unhealthy = [...this.all].filter((j) => !['ready', 'busy'].includes(String(j.getStatus()))).length;
+    const availableSlots = Math.max(0, this.maxSize - this.all.size - this.creating) + this.idle.length;
     return {
       total: this.all.size,
+      maxSize: this.maxSize,
       creating: this.creating,
       idle: this.idle.length,
       leased: this.leased.size,
       waiters: this.waiters.length,
       ready,
       unhealthy,
+      availableSlots,
+      saturated: this.waiters.length > 0 || (this.idle.length === 0 && this.all.size + this.creating >= this.maxSize),
     };
   }
 

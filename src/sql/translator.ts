@@ -186,8 +186,38 @@ function rewritePgDdlTypes(sql: string, defaultVarcharLength: number): string {
   }
 
   if (/^\s*alter\s+table\b/i.test(sql)) {
+    // PostgreSQL: ALTER TABLE t ALTER [COLUMN] c TYPE integer
+    // Db2 for i:  ALTER TABLE t ALTER COLUMN c SET DATA TYPE INTEGER
+    //
+    // Do not silently reinterpret PostgreSQL USING/COLLATE expressions. Db2's
+    // SET DATA TYPE performs its own compatibility conversion; a non-trivial
+    // USING expression has application semantics that require a dedicated
+    // rewrite and must fail explicitly instead of being dropped.
+    const ident = String.raw`(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$#@]*)`;
+    const relation = String.raw`(?:${ident})(?:\s*\.\s*(?:${ident}))?`;
+    const alterType = new RegExp(
+      String.raw`^(\s*ALTER\s+TABLE\s+(?:ONLY\s+)?${relation}\s+ALTER\s+)(?:COLUMN\s+)?(${ident})\s+TYPE\s+([\s\S]+)$`,
+      'i',
+    ).exec(sql);
+    if (alterType) {
+      const sourceType = alterType[3]!.trim();
+      if (topLevelKeywordIndex(sourceType, 'using') >= 0) {
+        throw Object.assign(
+          new Error('PostgreSQL ALTER COLUMN TYPE ... USING is not supported by the Db2 for i compatibility layer'),
+          { sqlstate: '0A000' },
+        );
+      }
+      if (topLevelKeywordIndex(sourceType, 'collate') >= 0) {
+        throw Object.assign(
+          new Error('PostgreSQL ALTER COLUMN TYPE ... COLLATE is not supported by the Db2 for i compatibility layer'),
+          { sqlstate: '0A000' },
+        );
+      }
+      return `${alterType[1]}COLUMN ${alterType[2]} SET DATA TYPE ${rewriteDb2TypePrefix(sourceType, defaultVarcharLength)}`;
+    }
+
     // ALTER TABLE ... ADD [COLUMN] <name> <type> ... is the DDL form used by
-    // Alembic for new columns.  Rewrite the type part while leaving all other
+    // Alembic for new columns. Rewrite the type part while leaving all other
     // ALTER actions untouched.
     return sql.replace(
       /(\bADD\s+(?:COLUMN\s+)?(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$#@]*)\s+)([^,]+)$/i,

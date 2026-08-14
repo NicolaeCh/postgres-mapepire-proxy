@@ -18,15 +18,15 @@ flowchart LR
   C[psql / DBeaver / ORM] -->|PostgreSQL v3 TCP 5432| G[pg-gateway]
   G --> S[Proxy session]
   S --> T[SQL translator + catalog compatibility]
-  S -->|lease one job per PG session| P[Session-affinity Mapepire pool]
+  S -->|lease for IBM i work / pin per transaction| P[Transaction-aware Mapepire pool]
   P -->|WSS 8076 / service user| M[Mapepire server on IBM i]
   M --> D[(Db2 for i)]
   H[HTTP health 8080] --> P
 ```
 
-## Why a session-affinity pool?
+## Why transaction-aware backend pooling?
 
-`@ibm/mapepire-js` recommends pooling for production. PostgreSQL sessions also need transaction affinity: all statements between `BEGIN` and `COMMIT/ROLLBACK` must execute on the same Db2 job. The project therefore pre-creates `SQLJob` objects and leases exactly one to each PostgreSQL connection. On release it performs a defensive `ROLLBACK` and resets `CURRENT SCHEMA`.
+`@ibm/mapepire-js` recommends pooling for production. PostgreSQL explicit transactions need backend affinity, but idle PostgreSQL TCP connections do not. The proxy therefore pre-creates/reuses `SQLJob` objects and, by default, leases one only while IBM i work is executing. Once an explicit transaction performs its first IBM i-backed statement, that job is pinned through `COMMIT`/`ROLLBACK`. On release the proxy performs a defensive `ROLLBACK` and resets `CURRENT SCHEMA`. Legacy full-session affinity remains available with `MAPEPIRE_BACKEND_LEASE_MODE=session`.
 
 ## Quick start
 
@@ -36,8 +36,8 @@ flowchart LR
 4. Build and run:
 
 ```bash
-podman build -t postgres-mapepire-proxy:0.1.37 -f Containerfile .
-podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.37
+podman build -t postgres-mapepire-proxy:0.1.38 -f Containerfile .
+podman run --rm --env-file .env -p 5432:5432 -p 8080:8080 postgres-mapepire-proxy:0.1.38
 ```
 
 During the image build, `scripts/verify-runtime-modules.mjs` validates the actual installed entry points for Mapepire, node-sql-parser, dotenv/config and pg-gateway. This catches CommonJS/ESM packaging incompatibilities before the runtime image is produced. After TypeScript compilation, the build also runs pgAdmin startup, browser/schema, psycopg3 Extended Query wire, and PostgreSQL startup-handshake contracts.
@@ -192,12 +192,22 @@ ContextForge v1.0.7 creates its fresh PostgreSQL schema through Alembic. Postgre
 
 ## ContextForge advisory-lock compatibility (0.1.20)
 
-ContextForge v1.0.7 serializes database bootstrap with PostgreSQL session advisory locks. Release 0.1.20 implements `pg_try_advisory_lock(bigint)`, `pg_advisory_unlock(bigint)`, and `pg_advisory_unlock_all()` inside the proxy. The lock registry is session-scoped and re-entrant, and locks are automatically released when the owning PostgreSQL TCP session closes. This prevents the generic PostgreSQL-system compatibility firewall from returning NULL for `pg_try_advisory_lock()`, which previously caused every ContextForge worker to wait forever for a lock that no worker could acquire.
+ContextForge v1.0.7 serializes database bootstrap with PostgreSQL session advisory locks. Release 0.1.20 implements `pg_try_advisory_lock(bigint)`, `pg_advisory_unlock(bigint)`, and `pg_advisory_unlock_all()` inside the proxy. The lock registry is session-scoped and re-entrant, and locks are automatically released when the owning PostgreSQL TCP session closes. This prevents the generic PostgreSQL-system compatibility firewall from returning NULL for `pg_try_advisory_lock()`, which previously caused every ContextForge worker to wait forever for a lock that no worker could acquire. The registry is process-local: run a single proxy instance when advisory locks are used for cross-client coordination, or add a shared/distributed advisory-lock backend before horizontally scaling the proxy itself.
 
 ## ContextForge foreign-key datatype compatibility (0.1.23)
 
 Alembic migrations can define an unbounded PostgreSQL `VARCHAR` foreign-key column that references a sized `VARCHAR(36)` primary key. The proxy now remembers translated parent-column types during the migration session and rewrites dependent foreign-key columns to the exact Db2 type required by the referenced key before executing the dependent `CREATE TABLE`.
 
+
+## Transaction-aware Mapepire backend pooling (0.1.38)
+
+The proxy now separates a **logical PostgreSQL connection** from a **physical Mapepire SQLJob**. With the default `MAPEPIRE_BACKEND_LEASE_MODE=transaction`, idle PostgreSQL connections, proxy-local catalog/environment responses, prepared-statement bookkeeping, and session advisory-lock polling do not reserve IBM i jobs. Autocommit IBM i work leases a job only for the operation; an explicit PostgreSQL transaction pins one job from its first IBM i-backed statement through COMMIT/ROLLBACK.
+
+This makes `MAPEPIRE_POOL_MAX_SIZE` a limit on **concurrent IBM i work / active IBM i transactions**, not a hidden limit on connected PostgreSQL clients. `PG_MAX_CLIENTS` remains the independent frontend connection limit. Backend checkout replays `CURRENT SCHEMA`; backend return performs defensive rollback/reset.
+
+Use `MAPEPIRE_BACKEND_LEASE_MODE=session` only when an application deliberately depends on IBM i backend-session-local state that the proxy does not virtualize. PostgreSQL session constructs that fundamentally require one physical backend (for example future support for backend temporary objects or holdable cursors) must either use session mode or gain an explicit affinity implementation before they are advertised as supported.
+
+0.1.38 also maps PostgreSQL `ALTER TABLE ... ALTER COLUMN ... TYPE ...` to Db2 for i `ALTER COLUMN ... SET DATA TYPE ...`. PostgreSQL `USING`/`COLLATE` conversion clauses are rejected explicitly until a semantics-preserving rewrite exists.
 
 ## ContextForge IBM i object-stabilization hardening (0.1.37)
 

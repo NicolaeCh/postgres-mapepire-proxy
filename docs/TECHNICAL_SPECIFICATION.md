@@ -17,7 +17,7 @@ flowchart TB
     SQL[Application SQL translation pipeline]
     CAT[Virtual PostgreSQL System Layer\npg_catalog / pg_stat / PG built-ins]
     FW[PostgreSQL-system firewall]
-    POOL[SessionJobPool\nSQLJob affinity]
+    POOL[SessionJobPool\ntransaction-aware SQLJob leases]
     HEALTH[HTTP health :8080]
     TCP --> PG --> SES
     SES --> CAT
@@ -53,17 +53,14 @@ This service profile determines all IBM i authority. Client usernames are applic
 
 ## 4. Mapepire connection management
 
-`@ibm/mapepire-js` provides `SQLJob` and its own general-purpose `Pool`. The proxy requires **session affinity**, so it implements `SessionJobPool` around persistent `SQLJob` objects:
+`@ibm/mapepire-js` provides persistent `SQLJob` objects and pooling APIs. The proxy keeps a bounded `SessionJobPool`, but **frontend PostgreSQL sessions and physical IBM i jobs are separate resources**. `MAPEPIRE_BACKEND_LEASE_MODE` controls affinity:
 
-1. At startup create `MAPEPIRE_POOL_STARTING_SIZE` jobs.
-2. Each authenticated PostgreSQL connection leases one job.
-3. All SQL for that connection executes on the same job.
-4. Pool expands up to `MAPEPIRE_POOL_MAX_SIZE`.
-5. Additional PostgreSQL sessions wait up to `MAPEPIRE_POOL_ACQUIRE_TIMEOUT_MS`.
-6. On session release: `ROLLBACK`, reset `CURRENT SCHEMA`, then return job to idle queue.
-7. Transport-broken jobs are discarded and replenished.
+- `transaction` (default): authentication creates only a logical PostgreSQL session. Autocommit IBM i work leases a job for the operation. `BEGIN` remains logical until the first IBM i-backed statement, then that SQLJob is pinned through COMMIT/ROLLBACK. Proxy-local operations (environment/catalog answers, prepared/portal bookkeeping, advisory locks) do not lease a job.
+- `session`: legacy mode; one Mapepire SQLJob is held for the whole PostgreSQL connection. Use it only when an application requires backend-session-local state not virtualized by the proxy.
 
-This prevents transaction leakage and avoids per-query WebSocket/JDBC startup cost.
+The pool starts with `MAPEPIRE_POOL_STARTING_SIZE`, grows to `MAPEPIRE_POOL_MAX_SIZE`, and queues backend work for at most `MAPEPIRE_POOL_ACQUIRE_TIMEOUT_MS`. Every checkout replays the logical session's `CURRENT SCHEMA`; every return performs a defensive `ROLLBACK` and resets the default schema. Broken jobs are discarded and replenished.
+
+The result is that, in transaction mode, Mapepire pool size represents concurrent IBM i work rather than connected PostgreSQL clients while explicit transaction semantics still remain on one Db2 job.
 
 ### JDBC properties
 
@@ -74,7 +71,9 @@ The `.env` exposes the performance/session properties used by this proxy: SQL na
 
 ### Session-state containment
 
-Because backend jobs are reused under one IBM i service identity, the proxy must not allow arbitrary PostgreSQL `SET` commands to leave state behind for a later client. v0.1 explicitly handles `search_path` and a small set of client-initialization settings; unsupported `SET` options return SQLSTATE `0A000`. Job release always performs a defensive `ROLLBACK` and restores `IBMI_CURRENT_SCHEMA`. Savepoints are also explicitly rejected in v0.1 rather than approximated.
+Because backend jobs are reused under one IBM i service identity, the logical PostgreSQL session owns the supported session state and replays it on backend checkout. v0.1 explicitly virtualizes/replays `search_path` and handles a small set of client-initialization settings; unsupported arbitrary `SET` options return SQLSTATE `0A000`. Prepared statement/portal definitions and PostgreSQL advisory locks are proxy-local. The advisory-lock registry is process-local, so multiple proxy replicas require a shared lock implementation before they can preserve cross-replica PostgreSQL advisory-lock semantics. Job release performs a defensive `ROLLBACK` and restores `IBMI_CURRENT_SCHEMA`. Savepoints are mapped only while an explicit transaction has a pinned backend.
+
+Transaction pooling is not a claim that every PostgreSQL session feature can be multiplexed. Features that inherently live in a physical backend session (for example backend temporary objects or holdable cursors, if implemented in future) require explicit affinity support or `MAPEPIRE_BACKEND_LEASE_MODE=session`.
 
 ### Retry policy
 
@@ -82,7 +81,7 @@ Because backend jobs are reused under one IBM i service identity, the proxy must
 
 ## 5. PostgreSQL wire protocol
 
-`pg-gateway` 0.2.4 handles StartupMessage, optional TLS negotiation and proxy-local authentication. A small subclass corrects startup completion for this backend: `AuthenticationOk` is followed by PostgreSQL `ParameterStatus` frames and `BackendKeyData`, and `ReadyForQuery` is delayed until a Mapepire SQLJob has been leased and the custom protocol parser is attached. The upstream 0.2.x query path is intentionally not used: after authentication, the proxy calls `detach()` and owns the authenticated socket. The proxy parser then incrementally reassembles PostgreSQL frontend frames and dispatches Query/Parse/Bind/Describe/Execute/Sync/Close/Terminate. This avoids coupling correctness to TCP packet boundaries and avoids the incomplete query path in pg-gateway 0.2.x.
+`pg-gateway` 0.2.4 handles StartupMessage, optional TLS negotiation and proxy-local authentication. A small subclass corrects startup completion for this backend: `AuthenticationOk` is followed by PostgreSQL `ParameterStatus` frames and `BackendKeyData`, and `ReadyForQuery` is delayed until the logical proxy session has been initialized and the custom protocol parser is attached. The upstream 0.2.x query path is intentionally not used: after authentication, the proxy calls `detach()` and owns the authenticated socket. The proxy parser then incrementally reassembles PostgreSQL frontend frames and dispatches Query/Parse/Bind/Describe/Execute/Sync/Close/Terminate. This avoids coupling correctness to TCP packet boundaries and avoids the incomplete query path in pg-gateway 0.2.x.
 
 ### Simple Query
 
@@ -117,7 +116,7 @@ stateDiagram-v2
   Idle --> Idle: autocommit statement\nexecute + COMMIT
 ```
 
-The PostgreSQL connection owns one Mapepire job, therefore all work in a transaction stays in one Db2 session. An error inside a transaction sets ReadyForQuery state `E`; subsequent statements fail with `25P02` until rollback/commit resolution.
+In transaction lease mode, the first IBM i-backed statement in an explicit PostgreSQL transaction obtains a Mapepire job and that job remains pinned until transaction end. Thus all Db2 work in the transaction stays in one Db2 session without requiring idle PostgreSQL connections to monopolize backend jobs. An error inside a transaction sets ReadyForQuery state `E`; subsequent statements fail with `25P02` until rollback/commit resolution.
 
 ## 7. SQL translation pipeline
 
@@ -218,7 +217,7 @@ The runtime executes as the non-root `node` user/group (UID/GID 1000) provided b
 ## 13. Implementation phases
 
 1. **Foundation** — TypeScript/ESM, config validation, logging, container.
-2. **Backend** — service-user Mapepire jobs and session-affinity pooling.
+2. **Backend** — service-user Mapepire jobs with transaction-aware pooling and optional session affinity.
 3. **Protocol** — PG auth, simple and extended query messages.
 4. **Translation** — dialect transforms and parameters.
 5. **Catalog** — SYSIBM/QSYS2 rewrites and synthetic OIDs.

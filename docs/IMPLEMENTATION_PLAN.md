@@ -21,7 +21,7 @@ Acceptance criteria: process starts only with valid mandatory IBM i settings and
 
 - `IBMI_USER` / `IBMI_PASSWORD` are the only credentials sent to Mapepire.
 - Persistent `SQLJob` objects are opened at startup.
-- Session-affinity pool leases one Mapepire job to one PostgreSQL connection.
+- Transaction-aware pool multiplexes logical PostgreSQL connections over Mapepire jobs; an explicit IBM i-backed transaction pins one job until COMMIT/ROLLBACK.
 - Pool grows from `MAPEPIRE_POOL_STARTING_SIZE` to `MAPEPIRE_POOL_MAX_SIZE`.
 - Release performs defensive `ROLLBACK` and restores `IBMI_CURRENT_SCHEMA`.
 - Broken jobs are discarded and replenished.

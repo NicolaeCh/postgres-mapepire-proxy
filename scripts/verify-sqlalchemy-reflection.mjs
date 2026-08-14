@@ -9,6 +9,7 @@ process.env.PG_PROXY_PASSWORD ??= 'proxypass';
 process.env.IBMI_CURRENT_SCHEMA ??= 'MCPDATA';
 process.env.DEFAULT_SCHEMA ??= 'MCPDATA';
 process.env.PG_SERVER_VERSION ??= '14.0';
+process.env.MAPEPIRE_BACKEND_LEASE_MODE = 'session';
 
 const { ProxySession } = await import('../dist/src/proxy/session.js');
 const { tableOid } = await import('../dist/src/sql/pgadmin-ibmi-table.js');
@@ -60,6 +61,8 @@ const fakeJob = {
   }),
 };
 const fakePool = {
+  schemaCapabilities: () => undefined,
+  stats: () => ({ total: 1, maxSize: 1, creating: 0, idle: 0, leased: 1, waiters: 0, ready: 1, unhealthy: 0, availableSlots: 0, saturated: false }),
   acquire: async () => fakeJob,
   release: async () => {},
   invalidate: async () => {},

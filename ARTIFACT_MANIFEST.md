@@ -1,12 +1,12 @@
 # Artifact Manifest — PostgreSQL → IBM i Mapepire Proxy
 
-Version: **0.1.37 reference implementation**
+Version: **0.1.38 reference implementation**
 
 ## Architecture decisions incorporated
 
 - IBM i access uses one dedicated service account from `IBMI_USER` / `IBMI_PASSWORD` in `.env`.
 - PostgreSQL-facing authentication is proxy-local and independent of IBM i credentials.
-- One Mapepire `SQLJob` is leased per PostgreSQL client session to preserve transaction and session affinity.
+- Logical PostgreSQL sessions are multiplexed over a bounded Mapepire SQLJob pool by default; a job is pinned for explicit IBM i-backed transactions, while legacy full-session affinity is configurable.
 - Official Docker Hub `node:24-bookworm-slim` is the default base for amd64 and ppc64le.
 - `pg-gateway` 0.2.4 handles startup/TLS/authentication; the authenticated socket is detached to the proxy's own incremental Simple/Extended Query protocol parser.
 - Runtime and Mapepire tuning parameters are centralized in `.env` / `.env.example`.
@@ -21,7 +21,7 @@ Version: **0.1.37 reference implementation**
 - Mermaid architecture/query/transaction diagrams.
 - Technical specification, implementation plan, compatibility matrix, security guide, testing guide, source references, validation notes and a **separate deployment runbook**.
 - Full `.env` configuration reference.
-- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.37.md`; separately delivered revision patches provide source-level traceability.
+- Build-fix/compatibility notes `docs/BUILD_FIX_0.1.1.md` through `docs/BUILD_FIX_0.1.38.md`; separately delivered revision patches provide source-level traceability.
 
 ## Validation scope
 

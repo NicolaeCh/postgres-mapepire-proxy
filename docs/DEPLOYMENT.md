@@ -101,7 +101,7 @@ MAPEPIRE_JDBC_EXTENDED_METADATA=true
 MAPEPIRE_JDBC_KEEP_ALIVE=true
 ```
 
-Tune pool maximum against IBM i workload capacity and expected concurrent PostgreSQL sessions. One active PostgreSQL session can hold one backend SQLJob.
+Tune the Mapepire pool against **concurrent IBM i work**, not total PostgreSQL connections. With the default `MAPEPIRE_BACKEND_LEASE_MODE=transaction`, idle logical PostgreSQL sessions do not hold SQLJobs; explicit transactions pin one backend only while the transaction is active. Use `session` mode only for workloads that require physical backend-session affinity.
 
 ## 3. TLS to Mapepire
 
@@ -273,11 +273,12 @@ Schema changes on IBM i are not performed by deployment scripts.
 
 ## 11. Operational sizing
 
-- `PG_MAX_CLIENTS` can exceed Mapepire pool max, but excess sessions wait for a backend lease at authentication time.
-- For interactive DBeaver usage, consider pool max close to expected concurrent connected users because each client holds a backend job.
+- `PG_MAX_CLIENTS` is the logical PostgreSQL connection ceiling and is intentionally independent from `MAPEPIRE_POOL_MAX_SIZE`.
+- In the default `transaction` lease mode, `MAPEPIRE_POOL_MAX_SIZE` limits simultaneous IBM i work / pinned transactions. Idle frontend connections and proxy-local advisory-lock polling consume no Mapepire job.
+- In legacy `session` lease mode, each connected PostgreSQL client still consumes one Mapepire SQLJob; size both limits accordingly.
 - `MAPEPIRE_FETCH_SIZE` controls Mapepire cursor page size; 300–1000 is a practical starting range and 500 is the supplied baseline.
-- For application servers, use the application's PostgreSQL connection pool conservatively; a large client-side pool directly consumes Mapepire/Db2 jobs.
-- Monitor `/stats` for persistent `waiters > 0` before increasing the pool. The `creating` counter shows jobs whose WebSocket/Db2 connection is still being established; these in-flight jobs count against `MAPEPIRE_POOL_MAX_SIZE`.
+- Monitor `/stats`: `connectedClients`, `leased`, `idle`, `waiters`, `availableSlots`, and `saturated` distinguish frontend connection pressure from IBM i backend pressure. Persistent backend `waiters > 0` means actual IBM i concurrency exceeds the configured pool.
+- Increasing the Mapepire pool is a capacity decision, not a substitute for transaction pooling. Validate additional IBM i jobs against subsystem/job limits and database workload capacity.
 
 ## 12. Stop
 
