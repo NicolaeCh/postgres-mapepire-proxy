@@ -137,7 +137,7 @@ The compose definition mounts `./certs` read-only at `/app/certs`.
 
 ```bash
 podman pull node:24-bookworm-slim
-podman build -f Containerfile -t postgres-mapepire-proxy:0.1.34 .
+podman build -f Containerfile -t postgres-mapepire-proxy:0.1.38 .
 ```
 
 ### Docker
